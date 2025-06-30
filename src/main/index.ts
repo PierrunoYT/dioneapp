@@ -169,10 +169,18 @@ function createWindow() {
 	}
 
 	// Load renderer content (URL in development, HTML file in production)
-	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-		mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+			mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL).catch(err => {
+				logger.error('Failed to load URL:', err);
+			});
+		} else {
+			mainWindow.loadFile(join(__dirname, "../renderer/index.html")).catch(err => {
+				logger.error('Failed to load file:', err);
+			});
+		}
 	} else {
-		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+		logger.error('Main window is destroyed or null, cannot load content');
 	}
 }
 
