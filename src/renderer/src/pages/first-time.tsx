@@ -145,7 +145,7 @@ export default function FirstTime() {
 	};
 
 	return (
-		<div className="absolute w-screen h-screen inset-0 z-50 bg-[#080808]/5 overflow-hidden">
+		<div className="absolute w-screen h-screen inset-0 z-50 bg-gray-100/5 dark:bg-[#080808]/5 overflow-hidden">
 			{/* background stuff */}
 			<Background />
 			<ExecuteSound firstLaunch={firstLaunch || "false"} />
@@ -153,7 +153,7 @@ export default function FirstTime() {
 				initial={{ opacity: 0 }}
 				animate={{ opacity: 1 }}
 				transition={{ duration: 2 }}
-				className="absolute blur-sm bg-[#BCB1E7]/5 h-full w-full"
+				className="absolute blur-sm bg-orange-200/5 dark:bg-[#BCB1E7]/5 h-full w-full"
 				style={{ zIndex: -1 }}
 			/>
 			<AnimatePresence mode="wait">
@@ -179,11 +179,11 @@ export default function FirstTime() {
 							<Icon name="Dio" className="w-20 h-20 mb-2" />
 							<h1 className="text-6xl font-semibold">
 								{t("firstTime.welcome.title")}{" "}
-								<span className="bg-clip-text text-transparent bg-gradient-to-t from-white via-[#BCB1E7] to-[#BCB1E7]">
+								<span className="bg-clip-text text-transparent bg-gradient-to-t from-gray-800 via-[#9333ea] to-[#9333ea] dark:from-white dark:via-[#BCB1E7] dark:to-[#BCB1E7]">
 									Dione
 								</span>
 							</h1>
-							<h2 className="text-neutral-400 text-balance text-center max-w-xl">
+							<h2 className="text-text-secondary-light dark:text-text-secondary-dark text-balance text-center max-w-xl">
 								{t("firstTime.welcome.subtitle")}
 							</h2>
 						</div>
@@ -204,7 +204,7 @@ export default function FirstTime() {
 						>
 							<button
 								type="button"
-								className="bg-white/10 w-28 rounded-full p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer"
+								className="bg-black/10 dark:bg-white/10 w-28 rounded-full p-1.5 text-sm text-text-primary-light dark:text-text-primary-dark hover:bg-black/20 dark:hover:bg-white/20 transition-colors duration-300 cursor-pointer"
 								onClick={() => {
 									changeLevel(2);
 									openLink("https://getdione.app/auth/login?app=true");
@@ -214,7 +214,7 @@ export default function FirstTime() {
 							</button>
 							<button
 								type="button"
-								className="text-xs text-white opacity-50 flex items-center justify-center gap-1 hover:opacity-80 transition-opacity duration-300 cursor-pointer"
+								className="text-xs text-text-primary-light dark:text-white opacity-50 flex items-center justify-center gap-1 hover:opacity-80 transition-opacity duration-300 cursor-pointer"
 								onClick={copyToClipboard}
 							>
 								<span>
@@ -243,7 +243,7 @@ export default function FirstTime() {
 									changeLevel(4);
 								}
 							}}
-							className="absolute bottom-12 text-xs text-white/70 hover:text-white cursor-pointer"
+							className="absolute bottom-12 text-xs text-text-primary-light/70 dark:text-white/70 hover:text-text-primary-light dark:hover:text-white cursor-pointer"
 						>
 							{t("firstTime.welcome.skipLogin")}
 						</motion.span>
@@ -271,12 +271,12 @@ export default function FirstTime() {
 						</div>
 						<div className="mt-6 flex flex-col gap-4">
 							<div className="flex flex-col gap-2 items-center justify-center">
-								<h3 className="text-white/50 text-xs">
+								<h3 className="text-text-primary-light/50 dark:text-white/50 text-xs">
 									{t("firstTime.loggingIn.authError")}
 								</h3>
 								<button
 									type="button"
-									className="bg-white/10 w-28 rounded-full p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer"
+									className="bg-black/10 dark:bg-white/10 w-28 rounded-full p-1.5 text-sm text-text-primary-light dark:text-text-primary-dark hover:bg-black/20 dark:hover:bg-white/20 transition-colors duration-300 cursor-pointer"
 									onClick={() => {
 										changeLevel(1);
 									}}
@@ -327,7 +327,7 @@ export default function FirstTime() {
 							<h1 className="text-6xl font-semibold">
 								{t("firstTime.ready.title")}
 							</h1>
-							<h2 className="text-neutral-400 text-balance text-center max-w-xl">
+							<h2 className="text-text-secondary-light dark:text-text-secondary-dark text-balance text-center max-w-xl">
 								{t("firstTime.ready.subtitle")} {user?.username}
 							</h2>
 						</div>
@@ -335,7 +335,7 @@ export default function FirstTime() {
 							<div className="flex flex-col items-center justify-center">
 								<Link
 									to="/?loginFinished=true"
-									className="bg-white/10 w-28 rounded-full p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer"
+									className="bg-black/10 dark:bg-white/10 w-28 rounded-full p-1.5 text-sm text-text-primary-light dark:text-text-primary-dark hover:bg-black/20 dark:hover:bg-white/20 transition-colors duration-300 cursor-pointer"
 								>
 									<span className="text-center w-full flex items-center justify-center">
 										{t("firstTime.ready.finish")}
@@ -361,7 +361,7 @@ export default function FirstTime() {
 						{[1, 2, 3, 4].map((lvl) => (
 							<div key={lvl} className="py-1">
 								<div
-									className={`w-6 h-1 rounded-full ${lvl === level ? "bg-[#BCB1E7] w-10" : "bg-white/20"}`}
+									className={`w-6 h-1 rounded-full ${lvl === level ? "bg-[#9333ea] dark:bg-[#BCB1E7] w-10" : "bg-black/20 dark:bg-white/20"}`}
 								/>
 							</div>
 						))}

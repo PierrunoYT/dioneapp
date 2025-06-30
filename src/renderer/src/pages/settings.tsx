@@ -26,7 +26,7 @@ const CustomSelect = ({
 			<button
 				type="button"
 				onClick={() => setIsOpen(!isOpen)}
-				className="bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 w-44 rounded-full text-sm focus:outline-none hover:bg-white/20 cursor-pointer transition-colors duration-400 flex items-center justify-between"
+				className="bg-black/10 dark:bg-white/10 border text-left border-black/10 dark:border-white/5 text-text-primary-light dark:text-text-primary-dark h-10 px-4 w-44 rounded-full text-sm focus:outline-none hover:bg-black/20 dark:hover:bg-white/20 cursor-pointer transition-colors duration-400 flex items-center justify-between"
 			>
 				<span>{options.find((opt) => opt.value === value)?.label}</span>
 				<motion.div
@@ -51,7 +51,7 @@ const CustomSelect = ({
 							animate={{ opacity: 1, y: 0 }}
 							exit={{ opacity: 0, y: 10 }}
 							transition={{ duration: 0.22 }}
-							className="backdrop-blur-md backdrop-filter absolute z-50 mt-2 w-44 p-2 rounded-xl border border-white/5 shadow-lg bg-[#2e2d32]/90"
+							className="backdrop-blur-md backdrop-filter absolute z-50 mt-2 w-44 p-2 rounded-xl border border-black/10 dark:border-white/5 shadow-lg bg-white/90 dark:bg-[#2e2d32]/90"
 						>
 							<div className="flex flex-col gap-1">
 								{options.map((option) => (
@@ -65,8 +65,8 @@ const CustomSelect = ({
 										className={`w-full text-left rounded-xl px-4 py-2 text-sm transition-colors duration-200 
 											${
 												option.value !== value
-													? "hover:bg-white/20 cursor-pointer text-neutral-300 hover:text-white"
-													: "bg-white/20 text-white"
+													? "hover:bg-black/20 dark:hover:bg-white/20 cursor-pointer text-text-secondary-light dark:text-text-secondary-dark hover:text-text-primary-light dark:hover:text-text-primary-dark"
+													: "bg-black/20 dark:bg-white/20 text-text-primary-light dark:text-text-primary-dark"
 											}`}
 									>
 										{option.label}
@@ -232,12 +232,12 @@ export default function Settings() {
 										<div className="flex flex-col gap-2">
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t(
 															"settings.applications.installationDirectory.label",
 														)}
 													</label>
-													<p className="text-xs text-neutral-400 w-80">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark w-80">
 														{t(
 															"settings.applications.installationDirectory.description",
 														)}
@@ -254,20 +254,20 @@ export default function Settings() {
 																config.defaultInstallFolder,
 																"apps",
 															)}
-															className="bg-white/10 border border-white/5 text-neutral-200 font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-white/20 cursor-pointer transition-colors duration-200"
+															className="bg-black/10 dark:bg-white/10 border border-black/10 dark:border-white/5 text-text-primary-light dark:text-text-primary-dark font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-black/20 dark:hover:bg-white/20 cursor-pointer transition-colors duration-200"
 														/>
 														<div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-															<Folder className="w-4 h-4 text-neutral-400" />
+															<Folder className="w-4 h-4 text-text-secondary-light dark:text-text-secondary-dark" />
 														</div>
 													</div>
 												</div>
 											</div>
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t("settings.applications.cleanUninstall.label")}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t(
 															"settings.applications.cleanUninstall.description",
 														)}
@@ -281,14 +281,14 @@ export default function Settings() {
 																!config.alwaysUninstallDependencies,
 														})
 													}
-													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-white/5 cursor-pointer ${
+													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
 														config.alwaysUninstallDependencies
 															? "bg-green-500/30"
 															: "bg-red-500/30"
 													}`}
 												>
 													<span
-														className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+														className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
 															config.alwaysUninstallDependencies
 																? "translate-x-6"
 																: "translate-x-0"
@@ -300,16 +300,16 @@ export default function Settings() {
 									</div>
 									<div className="flex flex-col">
 										{/* Interface */}
-										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
+										<div className="w-full h-0.5 bg-black/10 dark:bg-white/10 mt-4 mb-8" />
 										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.interface.title")}
 										</h2>
 										<div className="flex justify-between w-full items-center h-full space-y-2">
 											<div className="h-full flex items-start justify-center flex-col mt-auto">
-												<label className="text-neutral-200 font-medium">
+												<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 													{t("settings.interface.displayLanguage.label")}
 												</label>
-												<p className="text-xs text-neutral-400">
+												<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 													{t("settings.interface.displayLanguage.description")}
 												</p>
 											</div>
@@ -326,7 +326,7 @@ export default function Settings() {
 												href="https://github.com/dioneapp/dioneapp"
 												target="_blank"
 												rel="noopener noreferrer"
-												className="text-xs text-neutral-400 hover:text-neutral-200 transition-colors duration-200 px-2 py-0.5 rounded-xl bg-white/10"
+												className="text-xs text-text-secondary-light dark:text-text-secondary-dark hover:text-text-primary-light dark:hover:text-text-primary-dark transition-colors duration-200 px-2 py-0.5 rounded-xl bg-black/10 dark:bg-white/10"
 											>
 												{t("settings.interface.helpTranslate")}
 											</a>
@@ -396,19 +396,19 @@ export default function Settings() {
 									{/*  */}
 									<div className="flex flex-col">
 										{/* Account */}
-										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
+										<div className="w-full h-0.5 bg-black/10 dark:bg-white/10 mt-4 mb-8" />
 										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.notifications.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t(
 															"settings.notifications.systemNotifications.label",
 														)}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t(
 															"settings.notifications.systemNotifications.description",
 														)}
@@ -422,14 +422,14 @@ export default function Settings() {
 																!config.enableDesktopNotifications,
 														})
 													}
-													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-white/5 cursor-pointer ${
+													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
 														config.enableDesktopNotifications
 															? "bg-green-500/30"
 															: "bg-red-500/30"
 													}`}
 												>
 													<span
-														className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+														className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
 															config.enableDesktopNotifications
 																? "translate-x-6"
 																: "translate-x-0"
@@ -439,12 +439,12 @@ export default function Settings() {
 											</div>
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t(
 															"settings.notifications.installationAlerts.label",
 														)}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t(
 															"settings.notifications.installationAlerts.description",
 														)}
@@ -458,14 +458,14 @@ export default function Settings() {
 																!config.notifyOnInstallComplete,
 														})
 													}
-													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-white/5 cursor-pointer ${
+													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
 														config.notifyOnInstallComplete
 															? "bg-green-500/30"
 															: "bg-red-500/30"
 													}`}
 												>
 													<span
-														className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+														className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
 															config.notifyOnInstallComplete
 																? "translate-x-6"
 																: "translate-x-0"
@@ -478,17 +478,17 @@ export default function Settings() {
 									{/*  */}
 									<div className="flex flex-col">
 										{/* Privacy */}
-										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
+										<div className="w-full h-0.5 bg-black/10 dark:bg-white/10 mt-4 mb-8" />
 										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.privacy.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t("settings.privacy.errorReporting.label")}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t("settings.privacy.errorReporting.description")}
 													</p>
 												</div>
@@ -500,14 +500,14 @@ export default function Settings() {
 																!config.sendAnonymousReports,
 														})
 													}
-													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-white/5 cursor-pointer ${
+													className={`relative w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
 														config.sendAnonymousReports
 															? "bg-green-500/30"
 															: "bg-red-500/30"
 													}`}
 												>
 													<span
-														className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+														className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
 															config.sendAnonymousReports
 																? "translate-x-6"
 																: "translate-x-0"
@@ -520,17 +520,17 @@ export default function Settings() {
 									{/*  */}
 									<div className="flex flex-col">
 										{/* Other */}
-										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
+										<div className="w-full h-0.5 bg-black/10 dark:bg-white/10 mt-4 mb-8" />
 										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.other.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t("settings.other.logsDirectory.label")}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t("settings.other.logsDirectory.description")}
 													</p>
 												</div>
@@ -540,7 +540,7 @@ export default function Settings() {
 															required
 															readOnly
 															onClick={handleLogsDir}
-															className="bg-white/10 border border-white/5 text-neutral-200 font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-white/20 cursor-pointer transition-colors duration-200"
+															className="bg-black/10 dark:bg-white/10 border border-black/10 dark:border-white/5 text-text-primary-light dark:text-text-primary-dark font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-black/20 dark:hover:bg-white/20 cursor-pointer transition-colors duration-200"
 															type="text"
 															value={config.defaultLogsPath}
 															onChange={(e) => {
@@ -551,23 +551,23 @@ export default function Settings() {
 															}}
 														/>
 														<div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-															<Folder className="w-4 h-4 text-neutral-400" />
+															<Folder className="w-4 h-4 text-text-secondary-light dark:text-text-secondary-dark" />
 														</div>
 													</div>
 												</div>
 											</div>
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t("settings.other.submitFeedback.label")}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t("settings.other.submitFeedback.description")}
 													</p>
 												</div>
 												<button
 													onClick={() => handleReportError()}
-													className="px-6 py-2 text-sm font-medium bg-white text-black rounded-full hover:bg-white/80 disabled:opacity-50 transition-colors cursor-pointer"
+													className="px-6 py-2 text-sm font-medium bg-gray-800 dark:bg-white text-white dark:text-black rounded-full hover:bg-gray-700 dark:hover:bg-white/80 disabled:opacity-50 transition-colors cursor-pointer"
 													type="button"
 												>
 													{t("settings.other.submitFeedback.button")}
@@ -575,16 +575,16 @@ export default function Settings() {
 											</div>
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-text-primary-light dark:text-text-primary-dark font-medium">
 														{t("settings.other.showOnboarding.label")}
 													</label>
-													<p className="text-xs text-neutral-400">
+													<p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">
 														{t("settings.other.showOnboarding.description")}
 													</p>
 												</div>
 												<button
 													onClick={() => handleResetSettings()}
-													className="px-6 py-2 text-sm font-medium bg-white text-black rounded-full hover:bg-white/80 disabled:opacity-50 transition-colors cursor-pointer"
+													className="px-6 py-2 text-sm font-medium bg-gray-800 dark:bg-white text-white dark:text-black rounded-full hover:bg-gray-700 dark:hover:bg-white/80 disabled:opacity-50 transition-colors cursor-pointer"
 													type="button"
 												>
 													{t("settings.other.showOnboarding.button")}
@@ -594,7 +594,7 @@ export default function Settings() {
 									</div>
 								</div>
 							)}
-							<div className="w-full flex items-end justify-between text-xs text-neutral-500 z-50 mt-14 pb-4">
+							<div className="w-full flex items-end justify-between text-xs text-text-secondary-light dark:text-text-secondary-dark z-50 mt-14 pb-4">
 								<div>
 									<a
 										href="https://getdione.app"
