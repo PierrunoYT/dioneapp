@@ -1,10 +1,35 @@
 @import "tailwindcss";
 
 body {
-	color: #fff;
 	font-family: "Poppins", serif;
 	user-select: none;
 	scroll-behavior: smooth;
+	transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark theme (default) */
+.dark body {
+	color: #fff;
+	background-color: #080808;
+}
+
+/* Light theme */
+body:not(.dark body) {
+	color: #1f2937;
+	background-color: #f9fafb;
+}
+
+/* Main container styles */
+#main {
+	transition: background-color 0.3s ease;
+}
+
+.dark #main {
+	background-color: #080808;
+}
+
+body:not(.dark) #main {
+	background-color: #f9fafb;
 }
 
 #titlebar {
@@ -84,8 +109,14 @@ body {
 	background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
+/* Dark theme scrollbar */
+.dark ::-webkit-scrollbar-thumb {
 	background: rgba(255, 255, 255, 0.2);
+}
+
+/* Light theme scrollbar */
+::-webkit-scrollbar-thumb {
+	background: rgba(0, 0, 0, 0.2);
 }
 
 iframe::-webkit-scrollbar {

@@ -171,6 +171,12 @@ export const en = {
 				label: "Display Language",
 				description: "Choose your preferred interface language",
 			},
+			theme: {
+				label: "Theme",
+				description: "Choose between light and dark appearance",
+				light: "Light",
+				dark: "Dark",
+			},
 			helpTranslate: "🤔 Not seeing your language? Help us add more!",
 			compactView: {
 				label: "Compact View",

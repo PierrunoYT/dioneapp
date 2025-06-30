@@ -1,4 +1,5 @@
 import { useAuthContext } from "@renderer/components/contexts/AuthContext";
+import { useTheme } from "@renderer/components/contexts/ThemeContext";
 import { getCurrentPort } from "@renderer/utils/getPort";
 import { joinPath } from "@renderer/utils/path";
 import { AnimatePresence, motion } from "framer-motion";
@@ -25,7 +26,7 @@ const CustomSelect = ({
 			<button
 				type="button"
 				onClick={() => setIsOpen(!isOpen)}
-				className="bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 w-44 rounded-full text-sm focus:outline-none hover:bg-white/20 cursor-pointer transition-colors duration-400 flex items-center justify-between"
+				className="bg-gray-200 dark:bg-white/10 border border-gray-300 dark:border-white/5 text-gray-700 dark:text-neutral-200 h-10 px-4 w-44 rounded-full text-sm focus:outline-none hover:bg-gray-300 dark:hover:bg-white/20 cursor-pointer transition-colors duration-400 flex items-center justify-between text-left"
 			>
 				<span>{options.find((opt) => opt.value === value)?.label}</span>
 				<motion.div
@@ -50,7 +51,7 @@ const CustomSelect = ({
 							animate={{ opacity: 1, y: 0 }}
 							exit={{ opacity: 0, y: 10 }}
 							transition={{ duration: 0.22 }}
-							className="backdrop-blur-md backdrop-filter absolute z-50 mt-2 w-44 p-2 rounded-xl border border-white/5 shadow-lg bg-[#2e2d32]/90"
+							className="backdrop-blur-md backdrop-filter absolute z-50 mt-2 w-44 p-2 rounded-xl border border-gray-300 dark:border-white/5 shadow-lg bg-white/95 dark:bg-[#2e2d32]/90"
 						>
 							<div className="flex flex-col gap-1">
 								{options.map((option) => (
@@ -64,8 +65,8 @@ const CustomSelect = ({
 										className={`w-full text-left rounded-xl px-4 py-2 text-sm transition-colors duration-200 
 											${
 												option.value !== value
-													? "hover:bg-white/20 cursor-pointer text-neutral-300 hover:text-white"
-													: "bg-white/20 text-white"
+													? "hover:bg-gray-200 dark:hover:bg-white/20 cursor-pointer text-gray-600 dark:text-neutral-300 hover:text-gray-800 dark:hover:text-white"
+													: "bg-gray-200 dark:bg-white/20 text-gray-800 dark:text-white"
 											}`}
 									>
 										{option.label}
@@ -85,6 +86,7 @@ export default function Settings() {
 	const [versions] = useState(window.electron.process.versions);
 	const [config, setConfig] = useState<any | null>(null);
 	const { setLanguage, t } = useTranslation();
+	const { theme, setTheme } = useTheme();
 	const { logout } = useAuthContext();
 	const navigate = useNavigate();
 
@@ -202,29 +204,29 @@ export default function Settings() {
 	}
 
 	return (
-		<div className="min-h-screen bg-background pt-4">
+		<div className="min-h-screen pt-4 bg-gray-50 dark:bg-[#080808] transition-colors duration-300">
 			<div className="max-w-[2000px] mx-auto px-4 sm:px-6 lg:px-8">
 				<main className="flex flex-col gap-6 py-5">
 					{/* background */}
-					<div className="absolute top-0 left-0 w-full h-full bg-gradient-to-bl from-[#BCB1E7] to-[#080808] opacity-15 rounded-3xl blur-3xl z-0" />
+					<div className="absolute top-0 left-0 w-full h-full bg-gradient-to-bl from-[#BCB1E7] to-gray-200 dark:to-[#080808] opacity-15 rounded-3xl blur-3xl z-0" />
 					<div>
 						<div className="flex flex-col space-y-4 h-full">
 							{config && (
 								<div className="flex flex-col space-y-8 h-full z-50 mb-12">
 									<div className="flex flex-col">
 										{/* Apps */}
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-gray-900 dark:text-white">
 											{t("settings.applications.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
 											<div className="flex justify-between w-full items-center h-full space-y-2">
 												<div className="h-full flex items-start justify-center flex-col mt-auto">
-													<label className="text-neutral-200 font-medium">
+													<label className="text-gray-700 dark:text-neutral-200 font-medium">
 														{t(
 															"settings.applications.installationDirectory.label",
 														)}
 													</label>
-													<p className="text-xs text-neutral-400 w-80">
+													<p className="text-xs text-gray-500 dark:text-neutral-400 w-80">
 														{t(
 															"settings.applications.installationDirectory.description",
 														)}
@@ -241,7 +243,7 @@ export default function Settings() {
 																config.defaultInstallFolder,
 																"apps",
 															)}
-															className="bg-white/10 border border-white/5 text-neutral-200 font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-white/20 cursor-pointer transition-colors duration-200"
+															className="bg-gray-200 dark:bg-white/10 border border-gray-300 dark:border-white/5 text-gray-700 dark:text-neutral-200 font-mono text-sm h-10 px-4 pr-12 rounded-full truncate max-w-[calc(100%-12rem)] min-w-[18rem] focus:outline-none hover:bg-gray-300 dark:hover:bg-white/20 cursor-pointer transition-colors duration-200"
 														/>
 														<div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
 															<Folder className="w-4 h-4 text-neutral-400" />
@@ -291,22 +293,42 @@ export default function Settings() {
 										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
 											{t("settings.interface.title")}
 										</h2>
-										<div className="flex justify-between w-full items-center h-full space-y-2">
-											<div className="h-full flex items-start justify-center flex-col mt-auto">
-												<label className="text-neutral-200 font-medium">
-													{t("settings.interface.displayLanguage.label")}
-												</label>
-												<p className="text-xs text-neutral-400">
-													{t("settings.interface.displayLanguage.description")}
-												</p>
+										<div className="flex flex-col gap-4">
+											<div className="flex justify-between w-full items-center h-full space-y-2">
+												<div className="h-full flex items-start justify-center flex-col mt-auto">
+													<label className="text-neutral-200 font-medium">
+														{t("settings.interface.displayLanguage.label")}
+													</label>
+													<p className="text-xs text-neutral-400">
+														{t("settings.interface.displayLanguage.description")}
+													</p>
+												</div>
+												<CustomSelect
+													value={config.language}
+													onChange={(value) => setLanguage(value as any)}
+													options={Object.entries(languages).map(
+														([value, label]) => ({ value, label }),
+													)}
+												/>
 											</div>
-											<CustomSelect
-												value={config.language}
-												onChange={(value) => setLanguage(value as any)}
-												options={Object.entries(languages).map(
-													([value, label]) => ({ value, label }),
-												)}
-											/>
+											<div className="flex justify-between w-full items-center h-full space-y-2">
+												<div className="h-full flex items-start justify-center flex-col mt-auto">
+													<label className="text-neutral-200 font-medium">
+														{t("settings.interface.theme.label")}
+													</label>
+													<p className="text-xs text-neutral-400">
+														{t("settings.interface.theme.description")}
+													</p>
+												</div>
+												<CustomSelect
+													value={theme}
+													onChange={(value) => setTheme(value as "light" | "dark")}
+													options={[
+														{ value: "dark", label: t("settings.interface.theme.dark") },
+														{ value: "light", label: t("settings.interface.theme.light") },
+													]}
+												/>
+											</div>
 										</div>
 										<div>
 											<a
