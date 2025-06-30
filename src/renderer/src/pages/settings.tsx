@@ -106,7 +106,13 @@ export default function Settings() {
 		if (port) {
 			fetch(`http://localhost:${port}/config`)
 				.then((res) => res.json())
-				.then((data) => setConfig(data))
+				.then((data) => {
+					setConfig(data);
+					// Sync theme from config if available
+					if (data.theme && data.theme !== theme) {
+						setTheme(data.theme);
+					}
+				})
 				.catch((err) => console.error("Failed to load config:", err));
 		}
 	}
@@ -220,7 +226,7 @@ export default function Settings() {
 								<div className="flex flex-col space-y-8 h-full z-50 mb-12">
 									<div className="flex flex-col">
 										{/* Apps */}
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.applications.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
@@ -295,7 +301,7 @@ export default function Settings() {
 									<div className="flex flex-col">
 										{/* Interface */}
 										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.interface.title")}
 										</h2>
 										<div className="flex justify-between w-full items-center h-full space-y-2">
@@ -343,14 +349,14 @@ export default function Settings() {
 													handleUpdate({ theme: newTheme });
 												}}
 												className={`relative w-12 h-6 flex items-center rounded-full p-1 duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
-													theme === "dark"
+													(config.theme || theme) === "dark"
 														? "bg-blue-500/30"
 														: "bg-orange-500/30"
 												}`}
 											>
 												<span
 													className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md duration-300 ${
-														theme === "dark"
+														(config.theme || theme) === "dark"
 															? "translate-x-6"
 															: "translate-x-0"
 													}`}
@@ -391,7 +397,7 @@ export default function Settings() {
 									<div className="flex flex-col">
 										{/* Account */}
 										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.notifications.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
@@ -473,7 +479,7 @@ export default function Settings() {
 									<div className="flex flex-col">
 										{/* Privacy */}
 										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.privacy.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
@@ -515,7 +521,7 @@ export default function Settings() {
 									<div className="flex flex-col">
 										{/* Other */}
 										<div className="w-full h-0.5 bg-white/10 mt-4 mb-8" />
-										<h2 className="text-2xl sm:text-3xl font-semibold mb-6">
+										<h2 className="text-2xl sm:text-3xl font-semibold mb-6 text-text-primary-light dark:text-text-primary-dark">
 											{t("settings.other.title")}
 										</h2>
 										<div className="flex flex-col gap-2">
