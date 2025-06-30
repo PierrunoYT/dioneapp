@@ -1,4 +1,5 @@
 import { useAuthContext } from "@renderer/components/contexts/AuthContext";
+import { useTheme } from "@renderer/components/contexts/ThemeContext";
 import { getCurrentPort } from "@renderer/utils/getPort";
 import { joinPath } from "@renderer/utils/path";
 import { AnimatePresence, motion } from "framer-motion";
@@ -86,6 +87,7 @@ export default function Settings() {
 	const [config, setConfig] = useState<any | null>(null);
 	const { setLanguage, t } = useTranslation();
 	const { logout } = useAuthContext();
+	const { theme, setTheme } = useTheme();
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -128,6 +130,11 @@ export default function Settings() {
 			// update language in translation context if language changed
 			if (newConfig.language && newConfig.language !== config.language) {
 				setLanguage(newConfig.language);
+			}
+
+			// update theme if theme changed
+			if (newConfig.theme && newConfig.theme !== config.theme) {
+				setTheme(newConfig.theme);
 			}
 
 			if (
@@ -202,11 +209,11 @@ export default function Settings() {
 	}
 
 	return (
-		<div className="min-h-screen bg-background pt-4">
+		<div className="min-h-screen bg-background-light dark:bg-background-dark pt-4">
 			<div className="max-w-[2000px] mx-auto px-4 sm:px-6 lg:px-8">
 				<main className="flex flex-col gap-6 py-5">
 					{/* background */}
-					<div className="absolute top-0 left-0 w-full h-full bg-gradient-to-bl from-[#BCB1E7] to-[#080808] opacity-15 rounded-3xl blur-3xl z-0" />
+					<div className="absolute top-0 left-0 w-full h-full bg-gradient-to-bl from-[#9333ea] to-[#f3f4f6] dark:from-[#BCB1E7] dark:to-[#080808] opacity-10 dark:opacity-15 rounded-3xl blur-3xl z-0" />
 					<div>
 						<div className="flex flex-col space-y-4 h-full">
 							{config && (
@@ -322,10 +329,40 @@ export default function Settings() {
 									<div className="flex flex-col space-y-4">
 										<div className="flex justify-between w-full items-center h-full space-y-2">
 											<div className="h-full flex items-start justify-center flex-col mt-auto">
-												<label className="text-neutral-200 font-medium">
+												<label className="text-neutral-800 dark:text-neutral-200 font-medium">
+													Theme
+												</label>
+												<p className="text-xs text-neutral-600 dark:text-neutral-400">
+													Choose between light and dark theme
+												</p>
+											</div>
+											<button
+												type="button"
+												onClick={() => {
+													const newTheme = theme === "light" ? "dark" : "light";
+													handleUpdate({ theme: newTheme });
+												}}
+												className={`relative w-12 h-6 flex items-center rounded-full p-1 duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
+													theme === "dark"
+														? "bg-blue-500/30"
+														: "bg-orange-500/30"
+												}`}
+											>
+												<span
+													className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md duration-300 ${
+														theme === "dark"
+															? "translate-x-6"
+															: "translate-x-0"
+													}`}
+												/>
+											</button>
+										</div>
+										<div className="flex justify-between w-full items-center h-full space-y-2">
+											<div className="h-full flex items-start justify-center flex-col mt-auto">
+												<label className="text-neutral-800 dark:text-neutral-200 font-medium">
 													{t("settings.interface.compactView.label")}
 												</label>
-												<p className="text-xs text-neutral-400">
+												<p className="text-xs text-neutral-600 dark:text-neutral-400">
 													{t("settings.interface.compactView.description")}
 												</p>
 											</div>
@@ -334,14 +371,14 @@ export default function Settings() {
 												onClick={() =>
 													handleUpdate({ compactMode: !config.compactMode })
 												}
-												className={`relative w-12 h-6 flex items-center rounded-full p-1 duration-300 border border-white/5 cursor-pointer ${
+												className={`relative w-12 h-6 flex items-center rounded-full p-1 duration-300 border border-black/10 dark:border-white/5 cursor-pointer ${
 													config.compactMode
 														? "bg-green-500/30"
 														: "bg-red-500/30"
 												}`}
 											>
 												<span
-													className={`bg-white w-4 h-4 rounded-full shadow-md duration-300 ${
+													className={`bg-gray-800 dark:bg-white w-4 h-4 rounded-full shadow-md duration-300 ${
 														config.compactMode
 															? "translate-x-6"
 															: "translate-x-0"

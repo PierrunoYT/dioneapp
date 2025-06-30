@@ -1,10 +1,34 @@
 @import "tailwindcss";
 
+:root {
+	/* Light theme variables */
+	--background-light: #ffffff;
+	--background-dark: #080808;
+	--surface-light: #f8fafc;
+	--surface-dark: #1a1a1a;
+	--text-primary-light: #1f2937;
+	--text-primary-dark: #ffffff;
+	--text-secondary-light: #6b7280;
+	--text-secondary-dark: #d1d5db;
+}
+
 body {
-	color: #fff;
 	font-family: "Poppins", serif;
 	user-select: none;
 	scroll-behavior: smooth;
+	transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light theme */
+.light {
+	color: var(--text-primary-light);
+	background-color: var(--background-light);
+}
+
+/* Dark theme (default) */
+.dark {
+	color: var(--text-primary-dark);
+	background-color: var(--background-dark);
 }
 
 #titlebar {
