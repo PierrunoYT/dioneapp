@@ -196,11 +196,11 @@ const LogoutButton = ({ logout }: { logout: () => void }) => {
 
 const SkeletonCard = ({ className = "" }) => (
 	<div
-		className={`bg-white/5 rounded-xl p-8 animate-pulse border border-white/10 ${className}`}
+		className={`bg-black/5 dark:bg-white/5 rounded-xl p-8 animate-pulse border border-black/10 dark:border-white/10 ${className}`}
 	>
-		<div className="h-7 w-3/4 bg-white/10 rounded mb-6" />
-		<div className="h-4 w-1/2 bg-white/10 rounded mb-6" />
-		<div className="h-10 w-1/3 bg-white/10 rounded mt-auto" />
+		<div className="h-7 w-3/4 bg-black/10 dark:bg-white/10 rounded mb-6" />
+		<div className="h-4 w-1/2 bg-black/10 dark:bg-white/10 rounded mb-6" />
+		<div className="h-10 w-1/3 bg-black/10 dark:bg-white/10 rounded mt-auto" />
 	</div>
 );
 
