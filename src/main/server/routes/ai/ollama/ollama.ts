@@ -144,7 +144,7 @@ export function createOllamaRouter(io: SocketIOServer) {
 
 	OllamaRouter.get("/available-models", async (_req, res) => {
 		try {
-			const response = await fetch("https://api.getdione.app/v1/ai/models", {
+			const response = await fetch("https://api-getdione-app.deeivihh.workers.dev/v1/ai/models", {
 				method: "GET",
 				headers: {
 					...(process.env.API_KEY
@@ -375,7 +375,7 @@ export function createOllamaRouter(io: SocketIOServer) {
 						continue;
 					}
 				}
-			} catch {}
+			} catch { }
 
 			// 5. if nothing matched, return normal content
 			if (thoughtMatch) {

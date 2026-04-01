@@ -36,7 +36,7 @@ export default function NoAccess() {
 						<Button
 							variant="primary"
 							size="sm"
-							onClick={() => openLink("https://getdione.app/beta/join")}
+							onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/beta/join")}
 						>
 							{t("noAccess.join")}
 						</Button>

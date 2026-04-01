@@ -43,7 +43,7 @@ export const updatePresence = async (details?: string, state?: string) => {
 			buttons: [
 				{
 					label: "Get Dione",
-					url: "https://getdione.app",
+					url: "https://getdione-app.deeivihh.workers.dev",
 				},
 			],
 			type: ActivityType.Playing,

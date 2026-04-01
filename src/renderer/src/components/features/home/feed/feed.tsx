@@ -186,7 +186,7 @@ export default function List({
 						<span
 							onClick={() =>
 								openLink(
-									"https://docs.getdione.app/developer-guide/creating-a-dione-script",
+									"https://getdione-app.pages.dev/developer-guide/creating-a-dione-script",
 								)
 							}
 							className="cursor-pointer hover:text-neutral-300 underline underline-offset-4 text-neutral-400 transition-colors duration-300"

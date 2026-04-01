@@ -36,7 +36,7 @@ export default function FirstTime() {
 
 	const copyToClipboard = () => {
 		window.copyToClipboard.writeText(
-			"https://getdione.app/auth/login?app=true",
+			"https://getdione-app.deeivihh.workers.dev/auth/login?app=true",
 		);
 		showToast("success", t("firstTime.clipboard.success"));
 	};
@@ -215,7 +215,7 @@ export default function FirstTime() {
 								className="bg-white/10 w-28 rounded-xl p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer relative overflow-hidden"
 								onClick={() => {
 									// changeLevel(2);
-									openLink("https://getdione.app/auth/login?app=true");
+									openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
 								}}
 							>
 								<motion.div
@@ -285,7 +285,7 @@ export default function FirstTime() {
 							<SureNotLogin
 								onSkip={() => changeLevel(3)}
 								onLogin={() => {
-									openLink("https://getdione.app/auth/login?app=true");
+									openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
 								}}
 							/>
 						</div>
@@ -394,11 +394,10 @@ export default function FirstTime() {
 						{[1, 2, 3, 4].map((lvl) => (
 							<div key={lvl} className="py-1">
 								<div
-									className={`w-6 h-1 rounded-xl ${
-										lvl === level || (level === 5 && lvl === 4)
+									className={`w-6 h-1 rounded-xl ${lvl === level || (level === 5 && lvl === 4)
 											? "w-10"
 											: "bg-white/20"
-									}`}
+										}`}
 									style={
 										lvl === level || (level === 5 && lvl === 4)
 											? { backgroundColor: "var(--theme-accent)" }

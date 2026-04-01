@@ -107,7 +107,7 @@ export default function Settings() {
 			if (
 				updatedConfig.enableDesktopNotifications === true &&
 				updatedConfig.enableDesktopNotifications !==
-					config.enableDesktopNotifications
+				config.enableDesktopNotifications
 			) {
 				const xml = `
 				<toast launch="dione://action=navigate&amp;contentId=351" activationType="protocol">
@@ -118,7 +118,7 @@ export default function Settings() {
 						</binding>
 					</visual>
 					<actions>
-						<action content="${t("notifications.learnMore")}" activationType="protocol" arguments="https://getdione.app/docs" />
+						<action content="${t("notifications.learnMore")}" activationType="protocol" arguments="https://getdione-app.deeivihh.workers.dev/docs" />
 					</actions>
 				</toast>
 				`;

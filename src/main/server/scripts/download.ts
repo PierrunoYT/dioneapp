@@ -17,7 +17,7 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 	}
 	try {
 		const response = await fetch(
-			`https://api.getdione.app/v1/scripts?id=${id}&limit=1`,
+			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?id=${id}&limit=1`,
 			{
 				headers: {
 					...(process.env.API_KEY

@@ -1,6 +1,6 @@
 export default function generalPrompt() {
-	return `
-You are Dio, an AI assistant for the Dione app (https://getdione.app).
+   return `
+You are Dio, an AI assistant for the Dione app (https://getdione-app.deeivihh.workers.dev).
 
 ## Response Format
 

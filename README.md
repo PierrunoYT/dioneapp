@@ -1,3 +1,21 @@
+# Project Status
+
+Dione had an amazing 2025, with **25k+ downloads** and **10k+ users**.
+
+As of 2026, the original maintainers have stepped back. While the app still has potential, **we no longer have the time or support to maintain it**.
+
+The app is now self-sufficient using free resources, but **getdione.app and justusedione.com will stop working after April 10, 2026**.
+
+The repository is still open to the community: pull requests, new scripts, and improvements are welcome.
+
+**Want to take over the project (repo + Microsoft Store app + domain)?** Contact me on [Discord](https://discord.com/users/697234219470159903) or [Twitter/X](https://x.com/deeivihh) and show your enthusiasm for keeping Dione alive.
+
+We’d love to see Dione continue in new hands! ❤️
+
+#
+
+
+
 # Dione: Explore, Install, Innovate — in 1 Click
 
 **Dione** makes installing complex applications as simple as clicking a button — no terminal or technical knowledge needed.
@@ -12,11 +30,11 @@ For developers, Dione offers a zero-friction way to distribute apps using just a
 
 ## Download
 
-Download the latest release for your platform from [our website](https://getdione.app/download).
+Download the latest release for your platform from [our website](https://getdione-app.deeivihh.workers.dev/download).
 
 ## Documentation
 
-**Want to create and distribute apps with Dione?** Refer to the [developer documentation](https://docs.getdione.app/developer-guide/creating-a-dione-script) for comprehensive instructions on writing Dione scripts and app packaging.
+**Want to create and distribute apps with Dione?** Refer to the [developer documentation](https://getdione-app.pages.dev/developer-guide/creating-a-dione-script) for comprehensive instructions on writing Dione scripts and app packaging.
 
 ## Contributing
 
@@ -53,5 +71,7 @@ pnpm build:[platform]
 
 ## Support & Contact
 
-* For questions or feedback, join our [Discord community](https://getdione.app/discord).
-* Security issues can be reported to [support@getdione.app](mailto:support@getdione.app).
+* For questions or feedback, join our [Discord community](https://getdione-app.deeivihh.workers.dev/discord).
+* Security issues can be reported to [deeivihh3@hotmail.com](mailto:deeivihh3@hotmail.com).
+
+## This project is now run entirely by the community

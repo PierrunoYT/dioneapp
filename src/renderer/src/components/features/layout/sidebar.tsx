@@ -294,7 +294,7 @@ export default function Sidebar() {
 										<div className="flex flex-col gap-4">
 											<Button
 												onClick={() => {
-													openLink("https://getdione.app/auth/login?app=true");
+													openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
 													setWaitingForLogin(true);
 												}}
 												variant="accent"
@@ -445,7 +445,7 @@ export default function Sidebar() {
 						{!config?.compactMode && (
 							<div className="mt-2 w-full flex gap-2 px-0.5">
 								<Button
-									onClick={() => openLink("https://getdione.app/discord")}
+									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/discord")}
 									variant="accent"
 									size="sm"
 									className="flex-1"
@@ -455,7 +455,7 @@ export default function Sidebar() {
 								</Button>
 
 								<Button
-									onClick={() => openLink("https://getdione.app/github")}
+									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/github")}
 									variant="accent"
 									size="sm"
 									className="flex-1"
@@ -666,10 +666,10 @@ export default function Sidebar() {
 									) : (
 										<>
 											{!avatarError &&
-											user?.avatar_url &&
-											user?.avatar_url !== "" &&
-											user?.avatar_url !== null &&
-											user?.avatar_url !== undefined ? (
+												user?.avatar_url &&
+												user?.avatar_url !== "" &&
+												user?.avatar_url !== null &&
+												user?.avatar_url !== undefined ? (
 												<img
 													src={user?.avatar_url}
 													alt="user avatar"

@@ -29,7 +29,7 @@ export default function SettingsFooter({
 			<div className="flex justify-between w-full text-[10px] text-neutral-500  ">
 				<div className="mt-auto">
 					<a
-						href="https://getdione.app"
+						href="https://getdione-app.deeivihh.workers.dev"
 						target="_blank"
 						rel="noopener noreferrer"
 						className="hover:underline cursor-pointer hover:text-neutral-400 transition-colors"

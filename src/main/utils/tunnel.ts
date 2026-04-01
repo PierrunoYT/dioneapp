@@ -195,7 +195,7 @@ export async function shortenUrl(url: string): Promise<string | null> {
 					return null;
 				}
 
-				const shortUrl = `https://getdione.app/share/${data.id}`;
+				const shortUrl = `https://getdione-app.deeivihh.workers.dev/share/${data.id}`;
 
 				if (url === currentTunnelUrl) {
 					currentShortUrl = shortUrl;

@@ -18,7 +18,7 @@ router.get("/user/:id", async (req, res) => {
 	if (
 		!api_key ||
 		api_key !==
-			(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
+		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
 	) {
 		logger.warn(
 			app.isPackaged
@@ -62,7 +62,7 @@ router.get("/refresh-token", async (req, res) => {
 	if (
 		!api_key ||
 		api_key !==
-			(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
+		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
 	) {
 		logger.warn(
 			app.isPackaged
@@ -112,7 +112,7 @@ router.get("/set-session", async (req, res) => {
 	if (
 		!api_key ||
 		api_key !==
-			(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
+		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
 	) {
 		logger.warn(
 			app.isPackaged
@@ -178,13 +178,13 @@ router.get("/set-session", async (req, res) => {
 router.get("/featured", (_req, res) => {
 	async function getData() {
 		const response = await fetch(
-			"https://api.getdione.app/v1/scripts?limit=4&order_type=desc&featured=true",
+			"https://api-getdione-app.deeivihh.workers.dev/v1/scripts?limit=4&order_type=desc&featured=true",
 			{
 				headers: {
 					...(process.env.API_KEY
 						? {
-								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-							}
+							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+						}
 						: {}),
 				},
 			},
@@ -236,13 +236,13 @@ router.get("/explore", (req, res) => {
 	async function getData() {
 		try {
 			const response = await fetch(
-				`https://api.getdione.app/v1/scripts?page=${page}&limit=${limit}&order=${req.query.order_by || "created_at"}&order_type=${req.query.order_type || "asc"}`,
+				`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?page=${page}&limit=${limit}&order=${req.query.order_by || "created_at"}&order_type=${req.query.order_type || "asc"}`,
 				{
 					headers: {
 						...(process.env.API_KEY
 							? {
-									Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-								}
+								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+							}
 							: {}),
 					},
 				},
@@ -304,13 +304,13 @@ router.get("/search/:id", (req, res) => {
 	async function getData() {
 		logger.info(`Searching script with ID: "${req.params.id}"`);
 		const response = await fetch(
-			`https://api.getdione.app/v1/scripts?id=${req.params.id}&limit=1`,
+			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?id=${req.params.id}&limit=1`,
 			{
 				headers: {
 					...(process.env.API_KEY
 						? {
-								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-							}
+							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+						}
 						: {}),
 				},
 			},
@@ -372,7 +372,7 @@ router.get("/search/name/:name", async (req, res) => {
 		const orderBy = (req.query.order_by as string) || null;
 		const orderType = (req.query.order_type as string) || "asc";
 		if (sanitizedName) {
-			const url = new URL("https://api.getdione.app/v1/scripts");
+			const url = new URL("https://api-getdione-app.deeivihh.workers.dev/v1/scripts");
 			url.searchParams.set("q", sanitizedName);
 			url.searchParams.set("page", String(page));
 			url.searchParams.set("limit", String(limit));
@@ -458,7 +458,7 @@ router.get("/search/type/:type", async (req, res) => {
 		const orderBy = (req.query.order_by as string) || null;
 		const orderType = (req.query.order_type as string) || "asc";
 
-		const url = new URL("https://api.getdione.app/v1/scripts");
+		const url = new URL("https://api-getdione-app.deeivihh.workers.dev/v1/scripts");
 		url.searchParams.set("tags", type);
 		url.searchParams.set("page", String(page));
 		url.searchParams.set("limit", String(limit));
@@ -469,8 +469,8 @@ router.get("/search/type/:type", async (req, res) => {
 			headers: {
 				...(process.env.API_KEY
 					? {
-							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-						}
+						Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+					}
 					: {}),
 			},
 		});

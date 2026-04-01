@@ -80,13 +80,13 @@ export async function get_latest_apps(io: any) {
 	async function getData(page: number, limit: number) {
 		try {
 			const response = await fetch(
-				`https://api.getdione.app/v1/scripts?order_type=desc&page=${page}&limit=${limit}&order_by=created_at`,
+				`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?order_type=desc&page=${page}&limit=${limit}&order_by=created_at`,
 				{
 					headers: {
 						...(process.env.API_KEY
 							? {
-									Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-								}
+								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+							}
 							: {}),
 					},
 				},
@@ -150,13 +150,13 @@ export async function get_app_by_name(io: any, name: string) {
 		message: "Reading about an app",
 	});
 	const response = await fetch(
-		`https://api.getdione.app/v1/scripts?q=${name}&limit=1`,
+		`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?q=${name}&limit=1`,
 		{
 			headers: {
 				...(process.env.API_KEY
 					? {
-							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-						}
+						Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
+					}
 					: {}),
 			},
 		},
