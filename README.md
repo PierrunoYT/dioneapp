@@ -1,4 +1,4 @@
-# Project Status
+# ⚠️ Project Status
 
 Dione had an amazing 2025, with **25k+ downloads** and **10k+ users**.
 
@@ -11,10 +11,6 @@ The repository is still open to the community: pull requests, new scripts, and i
 **Want to take over the project (repo + Microsoft Store app + domain)?** Contact me on [Discord](https://discord.com/users/697234219470159903) or [Twitter/X](https://x.com/deeivihh) and show your enthusiasm for keeping Dione alive.
 
 We’d love to see Dione continue in new hands! ❤️
-
-#
-
-
 
 # Dione: Explore, Install, Innovate — in 1 Click
 
