@@ -1,12 +1,12 @@
     <svg
-                                    class="w-4 h-4"
+                                    class="w-5 h-5"
                                     viewBox="0 0 256 250"
                                     width="256"
                                     height="250"
-                                    fill="#080808"
+                                    fill="#fff"
                                     xmlns="http://www.w3.org/2000/svg"
                                     preserveAspectRatio="xMidYMid"
-                                    aria-hidden="true"
+                                    aria-hidden="true"  
                                     role="img"
                                 >
                                     <path

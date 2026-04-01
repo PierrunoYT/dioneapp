@@ -1,11 +1,10 @@
-import { useAuthContext } from "@/components/contexts/auth-context";
+// import { useAuthContext } from "@/components/contexts/auth-context";
 import { useScriptsContext } from "@/components/contexts/scripts-context";
 import GeneratedIcon from "@/components/icons/generated-icon";
 import Icon from "@/components/icons/icon";
-import { Button, IconButton, Modal, ModalBody } from "@/components/ui";
+import { IconButton, Modal, ModalBody } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch } from "@/utils/api";
-import { openLink } from "@/utils/open-link";
 import {
 	DndContext,
 	PointerSensor,
@@ -29,7 +28,6 @@ import {
 	Minimize as Minimize2,
 	Minus,
 	Settings,
-	User,
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -37,11 +35,11 @@ import { Link, useLocation } from "react-router-dom";
 
 export default function TopbarNav() {
 	const { t } = useTranslation();
-	const { user, loading } = useAuthContext();
+	// const { user, loading } = useAuthContext();
 	const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
 	const { activeApps, handleStopApp, isServerRunning, setExitRef } =
 		useScriptsContext();
-	const [avatarError, setAvatarError] = useState(false);
+	// const [avatarError, setAvatarError] = useState(false);
 	const [showModal, setShowModal] = useState(false);
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -276,8 +274,8 @@ export default function TopbarNav() {
 							to="/"
 							id="no-draggable"
 							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${isActivePath("/")
-									? "bg-white/15 text-white"
-									: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+								? "bg-white/15 text-white"
+								: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
 								}`}
 						>
 							<Home className="h-4 w-4" />
@@ -288,8 +286,8 @@ export default function TopbarNav() {
 							to="/library"
 							id="no-draggable"
 							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${isActivePath("/library")
-									? "bg-white/15 text-white"
-									: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+								? "bg-white/15 text-white"
+								: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
 								}`}
 						>
 							<Library className="h-4 w-4" />
@@ -334,8 +332,8 @@ export default function TopbarNav() {
 							></IconButton>
 						</Link>
 
-						{/* User Section */}
-						{user && (
+						{/* removed auth stuff to avoid security risks, read more in README.md */}
+						{/* {user && (
 							<Link
 								to="/library"
 								id="no-draggable"
@@ -372,7 +370,7 @@ export default function TopbarNav() {
 								<User className="h-4 w-4" />
 								{t("sidebar.tooltips.login")}
 							</Button>
-						)}
+						)} */}
 
 						{/* Separator + window controls - hidden on macOS (native traffic lights show) */}
 						{!isMac && (

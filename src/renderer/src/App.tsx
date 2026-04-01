@@ -1,4 +1,4 @@
-import { useAuthContext } from "@/components/contexts/auth-context";
+// import { useAuthContext } from "@/components/contexts/auth-context";
 import { ErrorBoundary } from "@/components/features/layout/error-handler";
 import OfflineIndicator from "@/components/features/layout/offline-indicator";
 import Sidebar from "@/components/features/layout/sidebar";
@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function App() {
-	const { user } = useAuthContext();
+	// const { user } = useAuthContext();
 	const location = useLocation();
 	const { pathname } = location;
 	const [_isFirstLaunch, setIsFirstLaunch] = useState<boolean>(false);
@@ -102,17 +102,17 @@ function App() {
 		fetchConfig();
 	}, []);
 
-	useEffect(() => {
-		// start session
-		handleStartSession();
-	}, [user]);
-
-	async function handleStartSession() {
-		if (!user || user.id === "") return;
-		window.electron.ipcRenderer.send("start-session", {
-			user: user,
-		});
-	}
+	// removed auth stuff to avoid security risks, read more in README.md
+	// useEffect(() => {
+	// 	// start session
+	// 	handleStartSession();
+	// }, [user]);
+	// async function handleStartSession() {
+	// 	if (!user || user.id === "") return;
+	// 	window.electron.ipcRenderer.send("start-session", {
+	// 		user: user,
+	// 	});
+	// }
 
 	const routes = {
 		"*": ErrorPage,

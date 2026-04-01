@@ -7,17 +7,17 @@ import {
 	initializeDiscordPresence,
 	updatePresence,
 } from "@/discord/presence";
-import {
-	deleteExpiresAt,
-	deleteId,
-	deleteToken,
-	getExpiresAt,
-	getId,
-	getToken,
-	saveExpiresAt,
-	saveId,
-	saveToken,
-} from "@/security/secure-tokens";
+// import {
+// 	deleteExpiresAt,
+// 	deleteId,
+// 	deleteToken,
+// 	getExpiresAt,
+// 	getId,
+// 	getToken,
+// 	saveExpiresAt,
+// 	saveId,
+// 	saveToken,
+// } from "@/security/secure-tokens";
 import { initDefaultEnv } from "@/server/scripts/dependencies/environment";
 import { start as startServer, stop as stopServer } from "@/server/server";
 import logger, { getLogs } from "@/server/utils/logger";
@@ -247,10 +247,10 @@ function createWindow() {
 				sandbox: false,
 				...(process.platform === "linux"
 					? {
-							enableRemoteModule: false,
-							webSecurity: false,
-							allowRunningInsecureContent: true,
-						}
+						enableRemoteModule: false,
+						webSecurity: false,
+						allowRunningInsecureContent: true,
+					}
 					: {}),
 			},
 		});
@@ -983,8 +983,7 @@ app.whenReady().then(async () => {
 				} else {
 					const bodyText = await response.text();
 					logger.warn(
-						`/db/events returned non-JSON (${
-							contentType || "unknown"
+						`/db/events returned non-JSON (${contentType || "unknown"
 						}). Body: ${bodyText.slice(0, 200)}`,
 					);
 					data = { raw: bodyText };
@@ -1173,42 +1172,43 @@ app.whenReady().then(async () => {
 		return machineIdSync(true); // true for hashed version
 	});
 
+	// removed auth stuff to avoid security risks, read more in README.md
 	// handle secure token
-	ipcMain.handle("secure-token:save", (_event, token: string) => {
-		return saveToken(token);
-	});
+	// ipcMain.handle("secure-token:save", (_event, token: string) => {
+	// 	return saveToken(token);
+	// });
 
-	ipcMain.handle("secure-token:get", () => {
-		return getToken();
-	});
+	// ipcMain.handle("secure-token:get", () => {
+	// 	return getToken();
+	// });
 
-	ipcMain.handle("secure-token:delete", () => {
-		return deleteToken();
-	});
+	// ipcMain.handle("secure-token:delete", () => {
+	// 	return deleteToken();
+	// });
 
-	ipcMain.handle("secure-token:save-expiresAt", (_event, expiresAt: number) => {
-		return saveExpiresAt(expiresAt);
-	});
+	// ipcMain.handle("secure-token:save-expiresAt", (_event, expiresAt: number) => {
+	// 	return saveExpiresAt(expiresAt);
+	// });
 
-	ipcMain.handle("secure-token:get-expiresAt", () => {
-		return getExpiresAt();
-	});
+	// ipcMain.handle("secure-token:get-expiresAt", () => {
+	// 	return getExpiresAt();
+	// });
 
-	ipcMain.handle("secure-token:delete-expiresAt", () => {
-		return deleteExpiresAt();
-	});
+	// ipcMain.handle("secure-token:delete-expiresAt", () => {
+	// 	return deleteExpiresAt();
+	// });
 
-	ipcMain.handle("secure-token:save-id", (_event, id: string) => {
-		return saveId(id);
-	});
+	// ipcMain.handle("secure-token:save-id", (_event, id: string) => {
+	// 	return saveId(id);
+	// });
 
-	ipcMain.handle("secure-token:get-id", () => {
-		return getId();
-	});
+	// ipcMain.handle("secure-token:get-id", () => {
+	// 	return getId();
+	// });
 
-	ipcMain.handle("secure-token:delete-id", () => {
-		return deleteId();
-	});
+	// ipcMain.handle("secure-token:delete-id", () => {
+	// 	return deleteId();
+	// });
 
 	// restart backend
 	ipcMain.handle("restart-backend", async () => {
@@ -1414,7 +1414,7 @@ ipcMain.handle("delete-folder", async (_event, folderPath) => {
 	) {
 		folderPath = path.join(
 			config?.defaultBinFolder ||
-				path.join(config?.defaultInstallFolder, "bin"),
+			path.join(config?.defaultInstallFolder, "bin"),
 			"cache",
 		);
 	} else {

@@ -1,4 +1,4 @@
-import { useAuthContext } from "@/components/contexts/auth-context";
+// import { useAuthContext } from "@/components/contexts/auth-context";
 import Background from "@/components/features/first-time/background";
 import SureNotLogin from "@/components/features/first-time/login";
 import Setup from "@/components/features/first-time/onboarding/setup";
@@ -7,18 +7,18 @@ import Titlebar from "@/components/features/layout/titlebar";
 import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
-import { apiJson } from "@/utils/api";
+// import { apiJson } from "@/utils/api";
 import { openLink } from "@/utils/open-link";
-import { saveExpiresAt, saveId, saveRefreshToken } from "@/utils/secure-tokens";
+// import { saveExpiresAt, saveId, saveRefreshToken } from "@/utils/secure-tokens";
 import { useToast } from "@/utils/use-toast";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link as LinkIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 export default function FirstTime() {
 	const { t } = useTranslation();
-	const { user, setUser, setRefreshSessionToken } = useAuthContext();
+	// const { user, setUser, setRefreshSessionToken } = useAuthContext();
 	const firstLaunch = localStorage.getItem("firstLaunch");
 	// toast stuff
 	const { addToast } = useToast();
@@ -42,8 +42,8 @@ export default function FirstTime() {
 	};
 
 	// auth
-	const [authToken, setAuthToken] = useState<string | null>(null);
-	const [refreshToken, setRefreshToken] = useState<string | null>(null);
+	// const [authToken, setAuthToken] = useState<string | null>(null);
+	// const [refreshToken, setRefreshToken] = useState<string | null>(null);
 
 	// levels
 	const [level, setLevel] = useState(1);
@@ -62,65 +62,63 @@ export default function FirstTime() {
 		}, 500);
 	};
 
-	useEffect(() => {
-		function shouldRedirect() {
-			if (user) {
-				changeLevel(3);
-			}
-		}
-		shouldRedirect();
-	}, []);
+	// removed auth stuff to avoid security risks, read more in README.md
+	// useEffect(() => {
+	// 	function shouldRedirect() {
+	// 		if (user) {
+	// 			changeLevel(3);
+	// 		}
+	// 	}
+	// 	shouldRedirect();
+	// }, []);
+	// useEffect(() => {
+	// 	const listenForAuthToken = () => {
+	// 		window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
+	// 			setAuthToken(authToken);
+	// 		});
+	// 		window.electron.ipcRenderer.on(
+	// 			"refresh-token",
+	// 			(_event, refreshToken) => {
+	// 				setRefreshToken(refreshToken);
+	// 			},
+	// 		);
+	// 	};
+	// 	listenForAuthToken();
+	// }, []);
+	// useEffect(() => {
+	// 	if (authToken && refreshToken) {
+	// 		async function setSessionAPI(token: string, refreshToken: string) {
+	// 			const data = await apiJson<any>("/db/set-session", {
+	// 				headers: {
+	// 					accessToken: token,
+	// 					refreshToken: refreshToken,
+	// 					api_key: import.meta.env.LOCAL_API_KEY || "",
+	// 				},
+	// 			});
+	// 			if (data.session) {
+	// 				window.electron.ipcRenderer.send("start-session", {
+	// 					user: data.user,
+	// 				});
+	// 				await saveExpiresAt(data.session.expires_at);
+	// 				await saveRefreshToken(data.session.refresh_token);
+	// 				setRefreshSessionToken(data.session.refresh_token);
+	// 				getUser(data.user.id);
+	// 				changeLevel(3);
+	// 			}
+	// 		}
 
-	useEffect(() => {
-		const listenForAuthToken = () => {
-			window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
-				setAuthToken(authToken);
-			});
-			window.electron.ipcRenderer.on(
-				"refresh-token",
-				(_event, refreshToken) => {
-					setRefreshToken(refreshToken);
-				},
-			);
-		};
-		listenForAuthToken();
-	}, []);
-
-	useEffect(() => {
-		if (authToken && refreshToken) {
-			async function setSessionAPI(token: string, refreshToken: string) {
-				const data = await apiJson<any>("/db/set-session", {
-					headers: {
-						accessToken: token,
-						refreshToken: refreshToken,
-						api_key: import.meta.env.LOCAL_API_KEY || "",
-					},
-				});
-				if (data.session) {
-					window.electron.ipcRenderer.send("start-session", {
-						user: data.user,
-					});
-					await saveExpiresAt(data.session.expires_at);
-					await saveRefreshToken(data.session.refresh_token);
-					setRefreshSessionToken(data.session.refresh_token);
-					getUser(data.user.id);
-					changeLevel(3);
-				}
-			}
-
-			setSessionAPI(authToken, refreshToken);
-		}
-	}, [authToken, refreshToken]);
-
-	async function getUser(id: string) {
-		const data = await apiJson<any>(`/db/user/${id}`, {
-			headers: {
-				api_key: import.meta.env.LOCAL_API_KEY || "",
-			},
-		});
-		setUser(data[0]);
-		await saveId(data[0].id);
-	}
+	// 		setSessionAPI(authToken, refreshToken);
+	// 	}
+	// }, [authToken, refreshToken]);
+	// async function getUser(id: string) {
+	// 	const data = await apiJson<any>(`/db/user/${id}`, {
+	// 		headers: {
+	// 			api_key: import.meta.env.LOCAL_API_KEY || "",
+	// 		},
+	// 	});
+	// 	setUser(data[0]);
+	// 	await saveId(data[0].id);
+	// }
 
 	function onSelectLanguage() {
 		changeLevel(5);
@@ -198,9 +196,6 @@ export default function FirstTime() {
 									</motion.span>
 								))}
 							</h1>
-							<h2 className="text-neutral-400 text-balance text-center max-w-xl">
-								{t("firstTime.welcome.subtitle")}
-							</h2>
 						</div>
 						<motion.div className="mt-4 flex flex-col gap-4">
 							<motion.button
@@ -212,10 +207,10 @@ export default function FirstTime() {
 								}}
 								whileTap={{ scale: 0.95 }}
 								transition={{ type: "spring", stiffness: 400, damping: 20 }}
-								className="bg-white/10 w-28 rounded-xl p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer relative overflow-hidden"
+								className="bg-white/10 w-44 mt-6 rounded-xl p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer relative overflow-hidden"
 								onClick={() => {
-									// changeLevel(2);
-									openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
+									changeLevel(3);
+									// openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
 								}}
 							>
 								<motion.div
@@ -229,27 +224,10 @@ export default function FirstTime() {
 									className="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent"
 								/>
 								<span className="relative z-10">
-									{t("firstTime.welcome.login")}
+									{t("firstTime.welcome.skipLogin")}
 								</span>
 							</motion.button>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={copyToClipboard}
-								className="text-xs text-white opacity-50 hover:opacity-80 gap-1"
-							>
-								<LinkIcon className="w-4 h-4" />
-								<span>{t("firstTime.welcome.copyLink")}</span>
-							</Button>
 						</motion.div>
-						<span
-							onClick={() => {
-								changeLevel(2);
-							}}
-							className="absolute bottom-12 text-xs text-white/70 hover:text-white cursor-pointer transition-all duration-300"
-						>
-							{t("firstTime.welcome.skipLogin")}
-						</span>
 					</motion.div>
 				)}
 				{/* 2 - logging in */}
@@ -279,7 +257,7 @@ export default function FirstTime() {
 						</div>
 					</motion.div>
 				)} */}
-				{level === 2 && (
+				{/* {level === 2 && (
 					<motion.div className={getContainerClasses()}>
 						<div className="flex flex-col gap-4 justify-center items-center">
 							<SureNotLogin
@@ -290,7 +268,7 @@ export default function FirstTime() {
 							/>
 						</div>
 					</motion.div>
-				)}
+				)} */}
 				{/* first time onboarding */}
 				{level === 3 && (
 					<motion.div
@@ -311,7 +289,7 @@ export default function FirstTime() {
 						<Button
 							variant="ghost"
 							size="sm"
-							onClick={() => changeLevel(2)}
+							onClick={() => changeLevel(1)}
 							className="absolute bottom-12 text-xs text-white/70 hover:text-white"
 						>
 							{t("firstTime.navigation.back")}
@@ -360,14 +338,14 @@ export default function FirstTime() {
 								</h1>
 								<p className="text-neutral-400 text-base max-w-md mx-auto">
 									{t("firstTime.ready.subtitle")}{" "}
-									{user?.username && (
+									{/* {user?.username && (
 										<span
 											className="font-medium"
 											style={{ color: "var(--theme-accent)" }}
 										>
 											{user.username}
 										</span>
-									)}
+									)} */}
 								</p>
 							</motion.div>
 
@@ -395,8 +373,8 @@ export default function FirstTime() {
 							<div key={lvl} className="py-1">
 								<div
 									className={`w-6 h-1 rounded-xl ${lvl === level || (level === 5 && lvl === 4)
-											? "w-10"
-											: "bg-white/20"
+										? "w-10"
+										: "bg-white/20"
 										}`}
 									style={
 										lvl === level || (level === 5 && lvl === 4)

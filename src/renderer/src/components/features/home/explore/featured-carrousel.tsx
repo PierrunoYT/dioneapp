@@ -1,8 +1,8 @@
-import { useAuthContext } from "@/components/contexts/auth-context";
+// import { useAuthContext } from "@/components/contexts/auth-context";
 import type { Script } from "@/components/features/home/feed/types";
 import { apiJson } from "@/utils/api";
 import { FeedCache } from "@/utils/cache";
-import sendEvent from "@/utils/events";
+// import sendEvent from "@/utils/events";
 import { useOnlineStatus } from "@/utils/use-online-status";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -15,7 +15,7 @@ export default function FeaturedCarousel() {
 	const [gradients, setGradients] = useState<Record<string, string>>({});
 	const [currentIndex, setCurrentIndex] = useState<number>(0);
 	const [isUsingCache, setIsUsingCache] = useState(false);
-	const { user } = useAuthContext();
+	// const { user } = useAuthContext();
 	const navigate = useNavigate();
 	const intervalRef = useRef<NodeJS.Timeout | null>(null);
 	const isOnline = useOnlineStatus();
@@ -144,13 +144,15 @@ export default function FeaturedCarousel() {
 			return;
 		}
 
-		const result = await sendEvent({
-			user: user?.id || "",
-			event: "promo_click",
-			app_id: id,
-			app_name: scripts.find((s) => s.id === id)?.name,
-		});
-		console.log(result);
+		// removed analytics stuff to avoid security risks, read more in README.md
+		// const result = await sendEvent({
+		// 	user: user?.id || "",
+		// 	event: "promo_click",
+		// 	app_id: id,
+		// 	app_name: scripts.find((s) => s.id === id)?.name,
+		// });
+		// console.log(result);
+
 		navigate(`/install/${id}`);
 	};
 
@@ -311,11 +313,10 @@ export default function FeaturedCarousel() {
 											e.preventDefault();
 											handleDotClick(index);
 										}}
-										className={`w-2 h-2 rounded-xl transition-all duration-300 ${
-											index === currentIndex
-												? "bg-white w-6"
-												: "bg-white/50 hover:bg-white/70"
-										}`}
+										className={`w-2 h-2 rounded-xl transition-all duration-300 ${index === currentIndex
+											? "bg-white w-6"
+											: "bg-white/50 hover:bg-white/70"
+											}`}
 									/>
 								))}
 							</div>
@@ -352,9 +353,8 @@ export function CarrouselSkeleton() {
 								{[...Array(5)].map((_, index) => (
 									<div
 										key={index}
-										className={`h-2 rounded-xl bg-gray-200/30 animate-pulse ${
-											index === 0 ? "w-6" : "w-2"
-										}`}
+										className={`h-2 rounded-xl bg-gray-200/30 animate-pulse ${index === 0 ? "w-6" : "w-2"
+											}`}
 									/>
 								))}
 							</div>

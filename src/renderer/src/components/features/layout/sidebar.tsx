@@ -1,4 +1,4 @@
-﻿import { useAuthContext } from "@/components/contexts/auth-context";
+﻿// import { useAuthContext } from "@/components/contexts/auth-context";
 import { useScriptsContext } from "@/components/contexts/scripts-context";
 import QuickLaunch from "@/components/features/layout/quick-launch";
 import GeneratedIcon from "@/components/icons/generated-icon";
@@ -21,11 +21,11 @@ import { Camera, Clock, Library, Settings, User, X } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-	saveExpiresAt,
-	saveId,
-	saveRefreshToken,
-} from "../../../utils/secure-tokens";
+// import {
+// 	saveExpiresAt,
+// 	saveId,
+// 	saveRefreshToken,
+// } from "../../../utils/secure-tokens";
 
 export default function Sidebar() {
 	const { t } = useTranslation();
@@ -35,9 +35,9 @@ export default function Sidebar() {
 	const [sidebarOrder, setSidebarOrder] = useState(() =>
 		activeApps.filter((app) => app.appId !== "ollama").map((app) => app.appId),
 	);
-	const [authToken, setAuthToken] = useState<string | null>(null);
-	const [refreshToken, setRefreshToken] = useState<string | null>(null);
-	const { user, loading, setUser, setRefreshSessionToken } = useAuthContext();
+	// const [authToken, setAuthToken] = useState<string | null>(null);
+	// const [refreshToken, setRefreshToken] = useState<string | null>(null);
+	// const { user, loading, setUser, setRefreshSessionToken } = useAuthContext();
 
 	useEffect(() => {
 		setSidebarOrder((prevOrder) => {
@@ -90,8 +90,7 @@ export default function Sidebar() {
 		);
 	}
 
-	const [avatarError, setAvatarError] = useState(false);
-
+	// const [avatarError, setAvatarError] = useState(false);
 	const [updateAvailable, setUpdateAvailable] = useState(false);
 	const [updateDownloaded, setUpdateDownloaded] = useState(false);
 	const [releaseNotes, setReleaseNotes] = useState<any>(null);
@@ -179,64 +178,62 @@ export default function Sidebar() {
 		fetchReleaseNotes();
 	}, [updateAvailable]);
 
-	useEffect(() => {
-		if (waitingForLogin && user) {
-			setWaitingForLogin(false);
-			setShowLoginModal(false);
-		}
-	}, [user, waitingForLogin]);
-
+	// removed auth stuff to avoid security risks, read more in README.md
+	// useEffect(() => {
+	// 	if (waitingForLogin && user) {
+	// 		setWaitingForLogin(false);
+	// 		setShowLoginModal(false);
+	// 	}
+	// }, [user, waitingForLogin]);
 	// listen oauth
-	useEffect(() => {
-		const listenForAuthToken = () => {
-			window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
-				setAuthToken(authToken);
-			});
-			window.electron.ipcRenderer.on(
-				"refresh-token",
-				(_event, refreshToken) => {
-					setRefreshToken(refreshToken);
-				},
-			);
-		};
-		listenForAuthToken();
-	}, []);
+	// useEffect(() => {
+	// 	const listenForAuthToken = () => {
+	// 		window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
+	// 			setAuthToken(authToken);
+	// 		});
+	// 		window.electron.ipcRenderer.on(
+	// 			"refresh-token",
+	// 			(_event, refreshToken) => {
+	// 				setRefreshToken(refreshToken);
+	// 			},
+	// 		);
+	// 	};
+	// 	listenForAuthToken();
+	// }, []);
+	// useEffect(() => {
+	// 	if (authToken && refreshToken) {
+	// 		async function setSessionAPI(token: string, refreshToken: string) {
+	// 			const data = await apiJson<any>("/db/set-session", {
+	// 				headers: {
+	// 					accessToken: token,
+	// 					refreshToken: refreshToken,
+	// 					api_key: import.meta.env.LOCAL_API_KEY || "",
+	// 				},
+	// 			});
+	// 			if (data.session) {
+	// 				window.electron.ipcRenderer.send("start-session", {
+	// 					user: data.user,
+	// 				});
+	// 				await saveExpiresAt(data.session.expires_at);
+	// 				await saveRefreshToken(data.session.refresh_token);
+	// 				setRefreshSessionToken(data.session.refresh_token);
+	// 				getUser(data.user.id);
+	// 				setShowLoginModal(false);
+	// 			}
+	// 		}
 
-	useEffect(() => {
-		if (authToken && refreshToken) {
-			async function setSessionAPI(token: string, refreshToken: string) {
-				const data = await apiJson<any>("/db/set-session", {
-					headers: {
-						accessToken: token,
-						refreshToken: refreshToken,
-						api_key: import.meta.env.LOCAL_API_KEY || "",
-					},
-				});
-				if (data.session) {
-					window.electron.ipcRenderer.send("start-session", {
-						user: data.user,
-					});
-					await saveExpiresAt(data.session.expires_at);
-					await saveRefreshToken(data.session.refresh_token);
-					setRefreshSessionToken(data.session.refresh_token);
-					getUser(data.user.id);
-					setShowLoginModal(false);
-				}
-			}
-
-			setSessionAPI(authToken, refreshToken);
-		}
-	}, [authToken, refreshToken]);
-
-	async function getUser(id: string) {
-		const data = await apiJson<any>(`/db/user/${id}`, {
-			headers: {
-				api_key: import.meta.env.LOCAL_API_KEY || "",
-			},
-		});
-		setUser(data[0]);
-		await saveId(data[0].id);
-	}
+	// 		setSessionAPI(authToken, refreshToken);
+	// 	}
+	// }, [authToken, refreshToken]);
+	// async function getUser(id: string) {
+	// 	const data = await apiJson<any>(`/db/user/${id}`, {
+	// 		headers: {
+	// 			api_key: import.meta.env.LOCAL_API_KEY || "",
+	// 		},
+	// 	});
+	// 	setUser(data[0]);
+	// 	await saveId(data[0].id);
+	// }
 
 	return (
 		<>
@@ -442,29 +439,6 @@ export default function Sidebar() {
 								{t("sidebar.tagline")}
 							</p>
 						)}
-						{!config?.compactMode && (
-							<div className="mt-2 w-full flex gap-2 px-0.5">
-								<Button
-									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/discord")}
-									variant="accent"
-									size="sm"
-									className="flex-1"
-								>
-									<Icon name="Discord" className="h-4 w-4" />
-									<span className="font-semibold">{t("links.discord")}</span>
-								</Button>
-
-								<Button
-									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/github")}
-									variant="accent"
-									size="sm"
-									className="flex-1"
-								>
-									<Icon name="GitHub" className="h-4 w-4" />
-									<span className="font-semibold">{t("links.github")}</span>
-								</Button>
-							</div>
-						)}
 					</div>
 					<div
 						className={
@@ -599,7 +573,7 @@ export default function Sidebar() {
 						className={`mt-auto h-0.5 rounded-xl w-full from-transparent via-white/40 to-transparent bg-linear-to-l ${!config?.compactMode ? "mb-4" : ""}`}
 					/>
 					<div
-						className={`mb-4 flex gap-2 items-center justify-center w-full h-fit group transition-all duration-500 ${loading ? "[&_div_div]:opacity-100 [&_div_div]:blur-none [&_div_div]:mt-0" : "hover:[&_div_div]:opacity-100 hover:[&_div_div]:blur-none [&_div_div]:-mt-24 hover:[&_div_div]:mt-0 [&_div_div]:opacity-0 [&_div_div]:blur-lg"} ${config?.compactMode ? "flex-col" : ""}`}
+						className={`mb-4 flex gap-2 items-center justify-center w-full h-fit group transition-all duration-500 hover:[&_div_div]:opacity-100 hover:[&_div_div]:blur-none [&_div_div]:-mt-24 hover:[&_div_div]:mt-0 [&_div_div]:opacity-0 [&_div_div]:blur-lg ${config?.compactMode ? "flex-col" : ""}`}
 					>
 						{config?.compactMode && (
 							<div className="mt-4 items-center gap-2 justify-center mx-auto w-full h-full flex-col flex transition-all duration-500">
@@ -648,7 +622,8 @@ export default function Sidebar() {
 								</div>
 							</div>
 						)}
-						<div
+						{/* removed auth stuff to avoid security risks, read more in README.md */}
+						{/* <div
 							className={`relative mt-auto w-fit flex items-center gap-2 ${config?.compactMode ? "justify-center" : "justify-start"}`}
 						>
 							{user && (
@@ -733,6 +708,16 @@ export default function Sidebar() {
 										onMouseLeave={() => setHoveredTooltip(null)}
 									/>
 								)}
+							</div>
+						)} */}
+						{!config?.compactMode && (
+							<div className="flex gap-2 items-center justify-start w-full h-full">
+								<button
+									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/github")}
+									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative cursor-pointer"
+								>
+									<Icon name="GitHub" className="h-5 w-5 text-white" />
+								</button>
 							</div>
 						)}
 						{!config?.compactMode && (

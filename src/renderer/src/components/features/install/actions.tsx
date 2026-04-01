@@ -8,7 +8,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
 	ArrowLeft,
 	BadgeCheck,
-	Bookmark,
 	ChevronDown,
 	CodeXml,
 	Download,
@@ -38,11 +37,8 @@ interface ActionsProps {
 	handleDeleteDeps: any;
 	startOptions?: any;
 	isLocal?: boolean;
-	user?: any;
 	setShow: any;
 	handleShare?: () => void;
-	handleSave?: () => void;
-	saved?: boolean;
 	handleUpdate: () => void;
 }
 
@@ -58,10 +54,7 @@ export default function ActionsComponent({
 	startOptions,
 	isLocal,
 	setShow,
-	user,
 	handleShare,
-	handleSave,
-	saved,
 	handleUpdate,
 }: ActionsProps) {
 	const { t } = useTranslation();
@@ -252,7 +245,14 @@ export default function ActionsComponent({
 							</button>
 
 							<div className="flex items-center gap-0.5 sm:gap-1">
-								{user && !isLocal && (
+								<button
+									type="button"
+									onClick={handleShare}
+									className="p-1.5 hover:bg-white/10 transition-colors rounded-xl text-neutral-400 hover:text-white cursor-pointer"
+								>
+									<Share2 className="h-3.5 w-3.5" />
+								</button>
+								{/* {user && !isLocal && (
 									<>
 										<button
 											type="button"
@@ -288,7 +288,7 @@ export default function ActionsComponent({
 											/>
 										</button>
 									</>
-								)}
+								)} */}
 							</div>
 						</div>
 
@@ -370,27 +370,25 @@ export default function ActionsComponent({
 
 										{/* Status Badge */}
 										<div
-											className={`flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-xl text-[9px] sm:text-[10px] font-medium whitespace-nowrap border ${
-												installed
-													? ""
-													: "bg-neutral-500/20 text-neutral-400 border-neutral-500/30"
-											}`}
+											className={`flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-xl text-[9px] sm:text-[10px] font-medium whitespace-nowrap border ${installed
+												? ""
+												: "bg-neutral-500/20 text-neutral-400 border-neutral-500/30"
+												}`}
 											style={
 												installed
 													? {
-															backgroundColor:
-																"color-mix(in srgb, var(--theme-accent) 20%, transparent)",
-															color: "var(--theme-accent)",
-															borderColor:
-																"color-mix(in srgb, var(--theme-accent) 30%, transparent)",
-														}
+														backgroundColor:
+															"color-mix(in srgb, var(--theme-accent) 20%, transparent)",
+														color: "var(--theme-accent)",
+														borderColor:
+															"color-mix(in srgb, var(--theme-accent) 30%, transparent)",
+													}
 													: {}
 											}
 										>
 											<div
-												className={`w-1 h-1 rounded-xl ${
-													installed ? "" : "bg-neutral-400"
-												}`}
+												className={`w-1 h-1 rounded-xl ${installed ? "" : "bg-neutral-400"
+													}`}
 												style={
 													installed
 														? { backgroundColor: "var(--theme-accent)" }

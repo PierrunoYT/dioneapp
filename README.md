@@ -4,7 +4,7 @@ Dione had an amazing 2025, with **25k+ downloads** and **10k+ users**.
 
 As of 2026, the original maintainers have stepped back. While the app still has potential, **we no longer have the time or support to maintain it**.
 
-The app is now self-sufficient using free resources, but **getdione.app and justusedione.com will stop working after April 10, 2026**.
+The app is now self-sufficient using free resources, but **getdione.app and justusedione.com will stop working after April 10, 2026**. We’ve also removed all sensitive data features (such as login and user accounts) to prevent potential security risks in an unmaintained state.
 
 The repository is still open to the community: pull requests, new scripts, and improvements are welcome.
 

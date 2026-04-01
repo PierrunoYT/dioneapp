@@ -1,4 +1,4 @@
-import { useAuthContext } from "@/components/contexts/auth-context";
+// import { useAuthContext } from "@/components/contexts/auth-context";
 import VariablesModal from "@/components/features/modals/variables";
 import SettingsTabs, {
 	type TabType,
@@ -31,7 +31,7 @@ export default function Settings() {
 	});
 	const [config, setConfig] = useState<any | null>(null);
 	const { setLanguage, language, t } = useTranslation();
-	const { logout } = useAuthContext();
+	// const { logout } = useAuthContext();
 	const { handleReloadQuickLaunch } = useScriptsContext();
 	const navigate = useNavigate();
 	const { addToast } = useToast();
@@ -191,7 +191,7 @@ export default function Settings() {
 			method: "POST",
 		});
 		await window.electron.ipcRenderer.invoke("check-first-launch");
-		await logout();
+		// await logout();
 		// terminate session
 		window.electron.ipcRenderer.send("end-session");
 		navigate("/first-time");
