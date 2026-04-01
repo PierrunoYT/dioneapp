@@ -1,4 +1,4 @@
-# ⚠️ Project Status
+## Project Status
 
 Dione had an amazing 2025, with **25k+ downloads** and **10k+ users**.
 
