@@ -1,6 +1,5 @@
 // import { useAuthContext } from "@/components/contexts/auth-context";
 import Background from "@/components/features/first-time/background";
-import SureNotLogin from "@/components/features/first-time/login";
 import Setup from "@/components/features/first-time/onboarding/setup";
 import ExecuteSound from "@/components/features/first-time/sounds/sound";
 import Titlebar from "@/components/features/layout/titlebar";
@@ -8,11 +7,9 @@ import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 // import { apiJson } from "@/utils/api";
-import { openLink } from "@/utils/open-link";
 // import { saveExpiresAt, saveId, saveRefreshToken } from "@/utils/secure-tokens";
-import { useToast } from "@/utils/use-toast";
+// import { useToast } from "@/utils/use-toast";
 import { AnimatePresence, motion } from "framer-motion";
-import { Link as LinkIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -21,25 +18,25 @@ export default function FirstTime() {
 	// const { user, setUser, setRefreshSessionToken } = useAuthContext();
 	const firstLaunch = localStorage.getItem("firstLaunch");
 	// toast stuff
-	const { addToast } = useToast();
-	const showToast = (
-		variant: "default" | "success" | "error" | "warning",
-		message: string,
-		fixed?: "true" | "false",
-	) => {
-		addToast({
-			variant,
-			children: message,
-			fixed,
-		});
-	};
+	// const { addToast } = useToast();
+	// const showToast = (
+	// 	variant: "default" | "success" | "error" | "warning",
+	// 	message: string,
+	// 	fixed?: "true" | "false",
+	// ) => {
+	// 	addToast({
+	// 		variant,
+	// 		children: message,
+	// 		fixed,
+	// 	});
+	// };
 
-	const copyToClipboard = () => {
-		window.copyToClipboard.writeText(
-			"https://getdione-app.deeivihh.workers.dev/auth/login?app=true",
-		);
-		showToast("success", t("firstTime.clipboard.success"));
-	};
+	// const copyToClipboard = () => {
+	// 	window.copyToClipboard.writeText(
+	// 		"https://getdione-app.deeivihh.workers.dev/auth/login?app=true",
+	// 	);
+	// 	showToast("success", t("firstTime.clipboard.success"));
+	// };
 
 	// auth
 	// const [authToken, setAuthToken] = useState<string | null>(null);

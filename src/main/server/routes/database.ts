@@ -1,6 +1,5 @@
 import { supabase } from "@/server/utils/database";
 import logger from "@/server/utils/logger";
-import { app } from "electron";
 import express from "express";
 
 const router = express.Router();

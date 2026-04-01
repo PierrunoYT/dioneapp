@@ -82,7 +82,7 @@ export default function Install({
 	// user
 	// const { user } = useAuthContext();
 	// const [saved, setSaved] = useState(false);
-	const savedApps = JSON.parse(localStorage.getItem("savedApps") || "[]");
+	// const savedApps = JSON.parse(localStorage.getItem("savedApps") || "[]");
 	// max apps limit (default 6)
 	const maxApps = 6;
 	// not supported modal
