@@ -8,7 +8,7 @@ The app is now self-sufficient using free resources, but **getdione.app and just
 
 The repository is still open to the community: pull requests, new scripts, and improvements are welcome.
 
-**Want to take over the project (repo + Microsoft Store app + domain)?** Contact me on [Discord](https://discord.com/users/697234219470159903) or [Twitter/X](https://x.com/deeivihh) and show your enthusiasm for keeping Dione alive.
+**Want to take over the project (repo + ms store app + domain)?** Contact with us on [Discord](https://discord.com/users/697234219470159903) or [Twitter/X](https://x.com/deeivihh) and show your enthusiasm for keeping Dione alive.
 
 We’d love to see Dione continue in new hands! ❤️
 
