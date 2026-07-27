@@ -2,16 +2,6 @@ import type { Terminal } from "@xterm/xterm";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { Socket } from "socket.io-client";
 
-// Auth context
-export interface AuthContextType {
-	user: any;
-	setUser: React.Dispatch<React.SetStateAction<any>>;
-	refreshSessionToken: string | null;
-	setRefreshSessionToken: React.Dispatch<React.SetStateAction<string | null>>;
-	logout: () => void;
-	loading: boolean;
-}
-
 // Scripts context
 export interface ProgressStepDef {
 	id: string;

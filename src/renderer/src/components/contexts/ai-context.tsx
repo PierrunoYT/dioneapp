@@ -1,5 +1,5 @@
 import { apiFetch } from "@/utils/api";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useScriptsContext } from "./scripts-context";
 import type { AIContextType } from "./types/context-types";
@@ -24,6 +24,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 	);
 	const [showModelHub, setShowModelHub] = useState(false);
 	const [installStep, setInstallStep] = useState<number>(1);
+	const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// contexts
 	const { sockets, connectApp, disconnectApp } = useScriptsContext();
 	const navigate = useNavigate();
@@ -228,10 +229,14 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 			socket.on(
 				"ollama:navigate-to-app",
 				(data: { id: string; action: "navigate" | "start" | "install" }) => {
+					if (redirectTimeoutRef.current !== null) {
+						clearTimeout(redirectTimeoutRef.current);
+					}
 					setRedirecting(true);
 					console.log("Navigating to app", data);
 					navigate(`/install/${data.id}?action=${data.action}`);
-					setTimeout(() => {
+					redirectTimeoutRef.current = setTimeout(() => {
+						redirectTimeoutRef.current = null;
 						setRedirecting(false);
 					}, 500);
 				},
@@ -246,6 +251,10 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		}
 
 		return () => {
+			if (redirectTimeoutRef.current !== null) {
+				clearTimeout(redirectTimeoutRef.current);
+				redirectTimeoutRef.current = null;
+			}
 			if (socket) {
 				socket.off("ollama:navigate-to-app");
 				socket.off("ollama:using-tool");

@@ -2,7 +2,7 @@ import { Button, Textarea } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { sendDiscordReport } from "@/utils/discord-webhook";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function ReportPage() {
@@ -13,6 +13,21 @@ export default function ReportPage() {
 		"idle" | "success" | "error"
 	>("idle");
 	const { t } = useTranslation();
+	const descriptionId = useId();
+	const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const isMountedRef = useRef(true);
+
+	useEffect(() => {
+		isMountedRef.current = true;
+		return () => {
+			isMountedRef.current = false;
+			if (navigationTimeoutRef.current !== null) {
+				clearTimeout(navigationTimeoutRef.current);
+			}
+		};
+	}, []);
 
 	// handle form submission
 	const handleSubmit = async (e: React.FormEvent) => {
@@ -26,16 +41,23 @@ export default function ReportPage() {
 				UserReport: true,
 			});
 
+			if (!isMountedRef.current) return;
 			setSubmitStatus(success ? "success" : "error");
 			if (success) {
 				setDescription("");
 				// wait 2 seconds before navigating back
-				setTimeout(() => navigate(-1), 2000);
+				if (navigationTimeoutRef.current !== null) {
+					clearTimeout(navigationTimeoutRef.current);
+				}
+				navigationTimeoutRef.current = setTimeout(() => {
+					navigationTimeoutRef.current = null;
+					navigate(-1);
+				}, 2000);
 			}
 		} catch (err) {
-			setSubmitStatus("error");
+			if (isMountedRef.current) setSubmitStatus("error");
 		} finally {
-			setIsSubmitting(false);
+			if (isMountedRef.current) setIsSubmitting(false);
 		}
 	};
 
@@ -45,13 +67,17 @@ export default function ReportPage() {
 				<form onSubmit={handleSubmit} className="space-y-2">
 					{/* description input */}
 					<div className="space-y-2">
-						<label className="block text-xl font-semibold">
+						<label
+							htmlFor={descriptionId}
+							className="block text-xl font-semibold"
+						>
 							{t("report.title")}
 						</label>
 						<p className="text-sm text-neutral-400">
 							{t("report.description")}
 						</p>
 						<Textarea
+							id={descriptionId}
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
 							className="mt-4 w-full max-h-54 min-h-48 px-4 py-3 bg-white/5 rounded-xl focus:outline-none focus:ring-1 transition-all duration-200 focus:ring-white/10 border border-white/10 text-base"

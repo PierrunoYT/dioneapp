@@ -1,11 +1,9 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import type { Script } from "@/components/features/home/feed/types";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { FeedCache } from "@/utils/cache";
-// import sendEvent from "@/utils/events";
 import { useOnlineStatus } from "@/utils/use-online-status";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -17,11 +15,11 @@ export default function FeaturedCarousel() {
 	const [gradients, setGradients] = useState<Record<string, string>>({});
 	const [currentIndex, setCurrentIndex] = useState<number>(0);
 	const [isUsingCache, setIsUsingCache] = useState(false);
-	// const { user } = useAuthContext();
 	const navigate = useNavigate();
 	const intervalRef = useRef<NodeJS.Timeout | null>(null);
 	const isOnline = useOnlineStatus();
 	const [config, setConfig] = useState<any>(null);
+	const prefersReducedMotion = useReducedMotion();
 
 	const interval = 12000;
 
@@ -93,7 +91,7 @@ export default function FeaturedCarousel() {
 	const slides = [...scripts.map((s) => ({ ...s, type: "script" as const }))];
 
 	useEffect(() => {
-		if (slides.length === 0) return;
+		if (slides.length === 0 || prefersReducedMotion) return;
 
 		const intervalId = setInterval(() => {
 			setCurrentIndex((prev) => (prev + 1) % slides.length);
@@ -104,7 +102,7 @@ export default function FeaturedCarousel() {
 		return () => {
 			if (intervalRef.current) clearInterval(intervalRef.current);
 		};
-	}, [slides.length]);
+	}, [slides.length, prefersReducedMotion]);
 
 	const handleDotClick = (index: number) => setCurrentIndex(index);
 
@@ -154,15 +152,6 @@ export default function FeaturedCarousel() {
 			return;
 		}
 
-		// removed analytics stuff to avoid security risks, read more in README.md
-		// const result = await sendEvent({
-		// 	user: user?.id || "",
-		// 	event: "promo_click",
-		// 	app_id: id,
-		// 	app_name: scripts.find((s) => s.id === id)?.name,
-		// });
-		// console.log(result);
-
 		navigate(`/install/${id}`);
 	};
 
@@ -180,12 +169,15 @@ export default function FeaturedCarousel() {
 						<div
 							className={`w-full h-72 flex transition-all duration-200 rounded-xl relative overflow-hidden group border border-white/10 hover:border-white/20 shadow-lg hover:shadow-xl ${!isOnline ? "cursor-not-allowed opacity-75" : "cursor-pointer"}`}
 						>
-							<div
+							<button
+								type="button"
+								aria-label={`Open featured app ${activeItem.name}`}
+								disabled={!isOnline}
 								onClick={(e) => {
 									e.preventDefault();
 									handlePromoClick(activeItem.id);
 								}}
-								className="w-full h-full relative"
+								className="w-full h-full relative text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
 							>
 								<div className="absolute inset-0 w-full h-full bg-black/5 backdrop-blur-lg z-50" />
 
@@ -202,16 +194,20 @@ export default function FeaturedCarousel() {
 													backgroundSize: "200% 200%",
 												}}
 												initial={{ backgroundPosition: "0% 50%" }}
-												animate={{
-													backgroundPosition: [
-														"0% 50%",
-														"100% 30%",
-														"60% 100%",
-														"20% 80%",
-														"80% 10%",
-														"0% 50%",
-													],
-												}}
+												animate={
+													prefersReducedMotion
+														? undefined
+														: {
+																backgroundPosition: [
+																	"0% 50%",
+																	"100% 30%",
+																	"60% 100%",
+																	"20% 80%",
+																	"80% 10%",
+																	"0% 50%",
+																],
+															}
+												}
 												transition={{
 													duration: 48,
 													repeat: Number.POSITIVE_INFINITY,
@@ -237,15 +233,19 @@ export default function FeaturedCarousel() {
 												aria-hidden
 												src={activeItem.banner_url}
 												className="absolute inset-0 w-full h-full object-cover opacity-50"
-												autoPlay
-												loop
+												autoPlay={!prefersReducedMotion}
+												loop={!prefersReducedMotion}
 												muted
 												playsInline
 												initial={{ scale: 1, filter: "blur(0px)" }}
-												animate={{
-													scale: [1, 1.05, 1],
-													filter: ["blur(0px)", "blur(2px)", "blur(0px)"],
-												}}
+												animate={
+													prefersReducedMotion
+														? undefined
+														: {
+																scale: [1, 1.05, 1],
+																filter: ["blur(0px)", "blur(2px)", "blur(0px)"],
+															}
+												}
 												transition={{
 													duration: 16,
 													repeat: Number.POSITIVE_INFINITY,
@@ -267,16 +267,20 @@ export default function FeaturedCarousel() {
 												backgroundSize: "200% 200%",
 											}}
 											initial={{ backgroundPosition: "0% 50%" }}
-											animate={{
-												backgroundPosition: [
-													"0% 50%",
-													"100% 30%",
-													"60% 100%",
-													"20% 80%",
-													"80% 10%",
-													"0% 50%",
-												],
-											}}
+											animate={
+												prefersReducedMotion
+													? undefined
+													: {
+															backgroundPosition: [
+																"0% 50%",
+																"100% 30%",
+																"60% 100%",
+																"20% 80%",
+																"80% 10%",
+																"0% 50%",
+															],
+														}
+											}
 											transition={{
 												duration: 48,
 												repeat: Number.POSITIVE_INFINITY,
@@ -313,17 +317,19 @@ export default function FeaturedCarousel() {
 										</div>
 									</div>
 								</motion.div>
-							</div>
+							</button>
 							<div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-50">
 								{slides.map((_, index) => (
 									<button
 										type="button"
 										key={index}
+										aria-label={`Show featured app ${index + 1} of ${slides.length}`}
+										aria-current={index === activeIndex ? "true" : undefined}
 										onClick={(e) => {
 											e.preventDefault();
 											handleDotClick(index);
 										}}
-										className={`w-2 h-2 rounded-xl transition-all duration-300 ${
+										className={`w-2 h-2 rounded-xl transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
 											index === activeIndex
 												? "bg-white w-6"
 												: "bg-white/50 hover:bg-white/70"

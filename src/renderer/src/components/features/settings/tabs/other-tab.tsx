@@ -89,6 +89,7 @@ export default function OtherTab({
 							}
 						}}
 						icon={<Folder className="w-4 h-4 text-neutral-300" />}
+						iconLabel={t("settings.other.logsDirectory.label")}
 						onIconClick={() => openFolder(config.defaultLogsPath)}
 						iconPosition="right"
 						variant="mono"

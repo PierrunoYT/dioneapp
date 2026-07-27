@@ -1,6 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+	type KeyboardEvent as ReactKeyboardEvent,
+	useEffect,
+	useId,
+	useRef,
+	useState,
+} from "react";
 
 export interface SelectOption {
 	value: string;
@@ -18,6 +24,9 @@ interface SelectProps {
 	width?: string;
 	disabled?: boolean;
 	showCheckmark?: boolean;
+	"aria-label"?: string;
+	"aria-labelledby"?: string;
+	"aria-describedby"?: string;
 }
 
 export default function Select({
@@ -29,9 +38,33 @@ export default function Select({
 	width = "w-44",
 	disabled = false,
 	showCheckmark = true,
+	"aria-label": ariaLabel = "Select an option",
+	"aria-labelledby": ariaLabelledBy,
+	"aria-describedby": ariaDescribedBy,
 }: SelectProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement | null>(null);
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const listboxId = useId();
+	const focusTrigger = () =>
+		requestAnimationFrame(() => triggerRef.current?.focus());
+	const focusOption = (position: "first" | "last") => {
+		requestAnimationFrame(() => {
+			const items = containerRef.current?.querySelectorAll<HTMLButtonElement>(
+				'[role="option"]:not([disabled])',
+			);
+			if (!items?.length) return;
+			items[position === "last" ? items.length - 1 : 0].focus();
+		});
+	};
+	const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+		if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+		event.preventDefault();
+		setIsOpen(true);
+		focusOption(
+			event.key === "ArrowUp" || event.key === "End" ? "last" : "first",
+		);
+	};
 
 	// Close dropdown on click outside or ESC
 	useEffect(() => {
@@ -47,7 +80,10 @@ export default function Select({
 		};
 
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setIsOpen(false);
+			if (event.key === "Escape") {
+				setIsOpen(false);
+				focusTrigger();
+			}
 		};
 
 		document.addEventListener("mousedown", handleDocumentMouseDown);
@@ -64,10 +100,19 @@ export default function Select({
 	return (
 		<div ref={containerRef} className={`relative ${className}`}>
 			<button
+				ref={triggerRef}
 				type="button"
+				role="combobox"
+				aria-label={ariaLabelledBy ? undefined : ariaLabel}
+				aria-labelledby={ariaLabelledBy}
+				aria-describedby={ariaDescribedBy}
+				aria-expanded={isOpen}
+				aria-controls={listboxId}
+				aria-haspopup="listbox"
+				onKeyDown={handleKeyDown}
 				onClick={() => !disabled && setIsOpen(!isOpen)}
 				disabled={disabled}
-				className={`${width} bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 rounded-xl text-sm focus:outline-none hover:bg-white/20 cursor-pointer flex items-center justify-between transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
+				className={`${width} bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 rounded-xl text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 hover:bg-white/20 cursor-pointer flex items-center justify-between transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
 			>
 				<span className="flex items-center gap-2 truncate">
 					{selectedOption?.icon}
@@ -85,6 +130,8 @@ export default function Select({
 			<AnimatePresence>
 				{isOpen && (
 					<motion.div
+						id={listboxId}
+						role="listbox"
 						key="dropdown"
 						initial={{ opacity: 0, y: 10 }}
 						animate={{ opacity: 1, y: 5 }}
@@ -100,11 +147,40 @@ export default function Select({
 								return (
 									<button
 										type="button"
+										role="option"
+										aria-selected={isSelected}
+										onKeyDown={(event) => {
+											if (event.key === "Escape") {
+												setIsOpen(false);
+												focusTrigger();
+											} else if (
+												event.key === "ArrowDown" ||
+												event.key === "ArrowUp"
+											) {
+												event.preventDefault();
+												const items = Array.from(
+													containerRef.current?.querySelectorAll<HTMLButtonElement>(
+														'[role="option"]:not([disabled])',
+													) ?? [],
+												);
+												const index = items.indexOf(event.currentTarget);
+												items[
+													(index +
+														(event.key === "ArrowDown" ? 1 : -1) +
+														items.length) %
+														items.length
+												]?.focus();
+											} else if (event.key === "Home" || event.key === "End") {
+												event.preventDefault();
+												focusOption(event.key === "Home" ? "first" : "last");
+											}
+										}}
 										key={option.value}
 										onClick={() => {
 											if (!isDisabled) {
 												onChange(option.value);
 												setIsOpen(false);
+												focusTrigger();
 											}
 										}}
 										disabled={isDisabled}
@@ -150,9 +226,35 @@ export function MultiSelect({
 	width = "w-44",
 	disabled = false,
 	maxSelections,
+	"aria-label": ariaLabel = "Select one or more options",
+	"aria-labelledby": ariaLabelledBy,
+	"aria-describedby": ariaDescribedBy,
 }: MultiSelectProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement | null>(null);
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const listboxId = useId();
+	const focusTrigger = () =>
+		requestAnimationFrame(() => triggerRef.current?.focus());
+	const focusOption = (position: "first" | "last") => {
+		requestAnimationFrame(() => {
+			const items = containerRef.current?.querySelectorAll<HTMLButtonElement>(
+				'[role="option"]:not([disabled])',
+			);
+			if (!items?.length) return;
+			items[position === "last" ? items.length - 1 : 0].focus();
+		});
+	};
+	const handleTriggerKeyDown = (
+		event: ReactKeyboardEvent<HTMLButtonElement>,
+	) => {
+		if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+		event.preventDefault();
+		setIsOpen(true);
+		focusOption(
+			event.key === "ArrowUp" || event.key === "End" ? "last" : "first",
+		);
+	};
 
 	useEffect(() => {
 		if (!isOpen) return;
@@ -167,7 +269,10 @@ export function MultiSelect({
 		};
 
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setIsOpen(false);
+			if (event.key === "Escape") {
+				setIsOpen(false);
+				focusTrigger();
+			}
 		};
 
 		document.addEventListener("mousedown", handleDocumentMouseDown);
@@ -196,10 +301,19 @@ export function MultiSelect({
 	return (
 		<div ref={containerRef} className={`relative ${className}`}>
 			<button
+				ref={triggerRef}
 				type="button"
+				role="combobox"
+				aria-label={ariaLabelledBy ? undefined : ariaLabel}
+				aria-labelledby={ariaLabelledBy}
+				aria-describedby={ariaDescribedBy}
+				aria-expanded={isOpen}
+				aria-controls={listboxId}
+				aria-haspopup="listbox"
+				onKeyDown={handleTriggerKeyDown}
 				onClick={() => !disabled && setIsOpen(!isOpen)}
 				disabled={disabled}
-				className={`${width} bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 rounded-xl text-sm focus:outline-none hover:bg-white/20 cursor-pointer flex items-center justify-between transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
+				className={`${width} bg-white/10 border text-left border-white/5 text-neutral-200 h-10 px-4 rounded-xl text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 hover:bg-white/20 cursor-pointer flex items-center justify-between transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
 			>
 				<span className="truncate">
 					{selectedLabels || placeholder}
@@ -217,6 +331,9 @@ export function MultiSelect({
 			<AnimatePresence>
 				{isOpen && (
 					<motion.div
+						id={listboxId}
+						role="listbox"
+						aria-multiselectable="true"
 						key="dropdown"
 						initial={{ opacity: 0, y: 10 }}
 						animate={{ opacity: 1, y: 5 }}
@@ -236,7 +353,35 @@ export function MultiSelect({
 								return (
 									<button
 										type="button"
+										role="option"
+										aria-selected={isSelected}
 										key={option.value}
+										onKeyDown={(event) => {
+											if (event.key === "Escape") {
+												setIsOpen(false);
+												focusTrigger();
+											} else if (
+												event.key === "ArrowDown" ||
+												event.key === "ArrowUp"
+											) {
+												event.preventDefault();
+												const items = Array.from(
+													containerRef.current?.querySelectorAll<HTMLButtonElement>(
+														'[role="option"]:not([disabled])',
+													) ?? [],
+												);
+												const index = items.indexOf(event.currentTarget);
+												items[
+													(index +
+														(event.key === "ArrowDown" ? 1 : -1) +
+														items.length) %
+														items.length
+												]?.focus();
+											} else if (event.key === "Home" || event.key === "End") {
+												event.preventDefault();
+												focusOption(event.key === "Home" ? "first" : "last");
+											}
+										}}
 										onClick={() => !isDisabled && handleToggle(option.value)}
 										disabled={isDisabled}
 										className={`w-full text-left rounded-xl px-4 py-2 text-sm transition-colors duration-200 flex items-center justify-between gap-2

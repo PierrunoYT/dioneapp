@@ -1,5 +1,4 @@
-﻿// import { useAuthContext } from "@/components/contexts/auth-context";
-import { useScriptsContext } from "@/components/contexts/scripts-context";
+﻿import { useScriptsContext } from "@/components/contexts/scripts-context";
 import QuickLaunch from "@/components/features/layout/quick-launch";
 import GeneratedIcon from "@/components/icons/generated-icon";
 import Icon from "@/components/icons/icon";
@@ -16,16 +15,11 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Clock, Library, Settings, User, X } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import { Camera, Clock, Library, Settings, X } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-// import {
-// 	saveExpiresAt,
-// 	saveId,
-// 	saveRefreshToken,
-// } from "../../../utils/secure-tokens";
 
 export default function Sidebar() {
 	const { t } = useTranslation();
@@ -35,10 +29,6 @@ export default function Sidebar() {
 	const [sidebarOrder, setSidebarOrder] = useState(() =>
 		activeApps.filter((app) => app.appId !== "ollama").map((app) => app.appId),
 	);
-	// const [authToken, setAuthToken] = useState<string | null>(null);
-	// const [refreshToken, setRefreshToken] = useState<string | null>(null);
-	// const { user, loading, setUser, setRefreshSessionToken } = useAuthContext();
-
 	useEffect(() => {
 		setSidebarOrder((prevOrder) => {
 			const currentIds = activeApps
@@ -90,12 +80,9 @@ export default function Sidebar() {
 		);
 	}
 
-	// const [avatarError, setAvatarError] = useState(false);
 	const [updateAvailable, setUpdateAvailable] = useState(false);
 	const [updateDownloaded, setUpdateDownloaded] = useState(false);
 	const [releaseNotes, setReleaseNotes] = useState<any>(null);
-	const [showLoginModal, setShowLoginModal] = useState(false);
-	const [waitingForLogin, setWaitingForLogin] = useState(false);
 
 	useEffect(() => {
 		window.electron.ipcRenderer.invoke("check-update");
@@ -178,173 +165,8 @@ export default function Sidebar() {
 		fetchReleaseNotes();
 	}, [updateAvailable]);
 
-	// removed auth stuff to avoid security risks, read more in README.md
-	// useEffect(() => {
-	// 	if (waitingForLogin && user) {
-	// 		setWaitingForLogin(false);
-	// 		setShowLoginModal(false);
-	// 	}
-	// }, [user, waitingForLogin]);
-	// listen oauth
-	// useEffect(() => {
-	// 	const listenForAuthToken = () => {
-	// 		window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
-	// 			setAuthToken(authToken);
-	// 		});
-	// 		window.electron.ipcRenderer.on(
-	// 			"refresh-token",
-	// 			(_event, refreshToken) => {
-	// 				setRefreshToken(refreshToken);
-	// 			},
-	// 		);
-	// 	};
-	// 	listenForAuthToken();
-	// }, []);
-	// useEffect(() => {
-	// 	if (authToken && refreshToken) {
-	// 		async function setSessionAPI(token: string, refreshToken: string) {
-	// 			const data = await apiJson<any>("/db/set-session", {
-	// 				headers: {
-	// 					accessToken: token,
-	// 					refreshToken: refreshToken,
-	// 					api_key: import.meta.env.LOCAL_API_KEY || "",
-	// 				},
-	// 			});
-	// 			if (data.session) {
-	// 				window.electron.ipcRenderer.send("start-session", {
-	// 					user: data.user,
-	// 				});
-	// 				await saveExpiresAt(data.session.expires_at);
-	// 				await saveRefreshToken(data.session.refresh_token);
-	// 				setRefreshSessionToken(data.session.refresh_token);
-	// 				getUser(data.user.id);
-	// 				setShowLoginModal(false);
-	// 			}
-	// 		}
-
-	// 		setSessionAPI(authToken, refreshToken);
-	// 	}
-	// }, [authToken, refreshToken]);
-	// async function getUser(id: string) {
-	// 	const data = await apiJson<any>(`/db/user/${id}`, {
-	// 		headers: {
-	// 			api_key: import.meta.env.LOCAL_API_KEY || "",
-	// 		},
-	// 	});
-	// 	setUser(data[0]);
-	// 	await saveId(data[0].id);
-	// }
-
 	return (
 		<>
-			<AnimatePresence>
-				{showLoginModal && (
-					<motion.div
-						key="login-modal"
-						initial={{ opacity: 0 }}
-						animate={{ opacity: 1 }}
-						exit={{ opacity: 0 }}
-						transition={{ duration: 0.18 }}
-						className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
-						onClick={() => setShowLoginModal(false)}
-					>
-						<motion.div
-							className="max-w-md w-full px-6"
-							onClick={(e) => e.stopPropagation()}
-							initial={{ scale: 0.95, opacity: 0, y: 10 }}
-							animate={{ scale: 1, opacity: 1, y: 0 }}
-							exit={{ scale: 0.95, opacity: 0, y: 10 }}
-							transition={{ duration: 0.18, ease: "easeOut" }}
-						>
-							<div className="bg-neutral-900/95 border border-white/10 rounded-xl p-8 shadow-2xl backdrop-blur-xl text-left relative overflow-hidden">
-								<div
-									className="absolute -top-24 -right-24 w-56 h-56 rounded-xl blur-3xl pointer-events-none"
-									style={{
-										background:
-											"radial-gradient(circle, var(--theme-accent) 0%, transparent 70%)",
-										opacity: 0.15,
-									}}
-								/>
-								<div
-									className="absolute -bottom-24 -left-24 w-56 h-56 rounded-xl blur-3xl pointer-events-none"
-									style={{
-										background:
-											"radial-gradient(circle, var(--theme-accent) 0%, transparent 70%)",
-										opacity: 0.1,
-									}}
-								/>
-								<div className="relative z-10">
-									<div className="text-center mb-8">
-										<h1 className="text-3xl font-bold text-neutral-50 mb-3">
-											{waitingForLogin
-												? t("sidebar.login.waitingTitle")
-												: t("sidebar.login.title")}
-										</h1>
-										<p className="text-sm text-neutral-400 leading-relaxed px-4">
-											{waitingForLogin
-												? t("sidebar.login.waitingDescription")
-												: t("sidebar.login.description")}
-										</p>
-									</div>
-
-									{!waitingForLogin ? (
-										<div className="flex flex-col gap-4">
-											<Button
-												onClick={() => {
-													openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
-													setWaitingForLogin(true);
-												}}
-												variant="accent"
-												size="lg"
-												className="w-full shadow-lg hover:shadow-xl transition-all duration-200"
-											>
-												<User className="h-5 w-5" />
-												<span className="font-semibold text-base">
-													{t("sidebar.login.loginButton")}
-												</span>
-											</Button>
-											<p
-												onClick={() => setShowLoginModal(false)}
-												className="text-center text-sm text-neutral-500 hover:text-neutral-300 cursor-pointer transition-colors"
-											>
-												{t("sidebar.login.later")}
-											</p>
-										</div>
-									) : (
-										<div className="flex flex-col gap-4">
-											<div className="flex items-center justify-center gap-2 py-4">
-												<div
-													className="w-2 h-2 bg-white/60 rounded-full animate-bounce"
-													style={{ animationDelay: "0ms" }}
-												/>
-												<div
-													className="w-2 h-2 bg-white/60 rounded-full animate-bounce"
-													style={{ animationDelay: "150ms" }}
-												/>
-												<div
-													className="w-2 h-2 bg-white/60 rounded-full animate-bounce"
-													style={{ animationDelay: "300ms" }}
-												/>
-											</div>
-											<Button
-												onClick={() => {
-													setWaitingForLogin(false);
-													setShowLoginModal(false);
-												}}
-												variant="outline"
-												size="md"
-												className="w-full"
-											>
-												{t("sidebar.login.cancel")}
-											</Button>
-										</div>
-									)}
-								</div>
-							</div>
-						</motion.div>
-					</motion.div>
-				)}
-			</AnimatePresence>
 			<AnimatePresence>
 				{updateDownloaded && releaseNotes && (
 					<Modal
@@ -622,98 +444,14 @@ export default function Sidebar() {
 								</div>
 							</div>
 						)}
-						{/* removed auth stuff to avoid security risks, read more in README.md */}
-						{/* <div
-							className={`relative mt-auto w-fit flex items-center gap-2 ${config?.compactMode ? "justify-center" : "justify-start"}`}
-						>
-							{user && (
-								<div
-									className={`cursor-pointer overflow-hidden flex items-center justify-center transition-opacity duration-200 ${loading ? "cursor-auto" : ""} h-9 w-9 rounded-xl ${!user?.avatar_url && "border border-white/20"}`}
-								>
-									{loading && !user ? (
-										<div
-											className="w-full h-full border border-white/10 hover:bg-white/10 rounded-xl transition-colors flex items-center justify-center cursor-pointer"
-											onMouseEnter={() => setHoveredTooltip("library")}
-											onMouseLeave={() => setHoveredTooltip(null)}
-										>
-											<User className="h-5 w-5" />
-										</div>
-									) : (
-										<>
-											{!avatarError &&
-												user?.avatar_url &&
-												user?.avatar_url !== "" &&
-												user?.avatar_url !== null &&
-												user?.avatar_url !== undefined ? (
-												<img
-													src={user?.avatar_url}
-													alt="user avatar"
-													className="h-full w-full object-cover object-center"
-													onError={() => {
-														setAvatarError(true);
-													}}
-												/>
-											) : (
-												<span className="h-full w-full flex justify-center items-center border border-white/20 rounded-xl bg-white/10">
-													<span>
-														{user?.username.charAt(0).toUpperCase() || (
-															<User className="h-5 w-5" />
-														)}
-													</span>
-												</span>
-											)}
-										</>
-									)}
-									{hoveredTooltip === "library" && (
-										<div
-											className={`${config?.compactMode ? "absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 px-3 py-2 bg-black/90 text-white text-xs shadow-lg backdrop-blur-3xl duration-200 whitespace-nowrap" : "absolute left-1/2 -translate-x-1/2 top-full z-50 px-3 py-1 text-neutral-300 text-xs shadow-lg duration-200 whitespace-nowrap"}`}
-										>
-											{t("sidebar.tooltips.library")}
-										</div>
-									)}
-								</div>
-							)}
-						</div>
-						{!config?.compactMode && (
-							<div className="flex gap-2 items-center justify-start w-full h-full">
-								{!user && (
-									<button
-										onClick={() => setShowLoginModal(true)}
-										className="w-9 h-9 border border-white/10 hover:bg-white hover:border-white/20 bg-white/90 rounded-xl transition-all duration-200 flex gap-1 items-center justify-center relative cursor-pointer shadow-lg hover:shadow-xl"
-										onMouseEnter={() => setHoveredTooltip("login")}
-										onMouseLeave={() => setHoveredTooltip(null)}
-									>
-										<User className="h-5 w-5 text-black" />
-										{hoveredTooltip === "login" && (
-											<div
-												className={`${config?.compactMode ? "absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 px-3 py-2 bg-black/90 text-white text-xs shadow-lg backdrop-blur-3xl duration-200 whitespace-nowrap rounded-xl" : "absolute left-1/2 -translate-x-1/2 top-full z-50 px-3 py-1 text-neutral-300 text-xs shadow-lg duration-200 whitespace-nowrap rounded-xl"}`}
-											>
-												{t("sidebar.tooltips.login")}
-											</div>
-										)}
-									</button>
-								)}
-							</div>
-						)}
-						{config?.compactMode && (
-							<div className="flex gap-2 items-center justify-start w-9.5 h-9.5">
-								{!user && (
-									<IconButton
-										icon={<User className="h-4 w-4" />}
-										variant="accent"
-										size="md"
-										className="w-9.5 h-9.5"
-										onClick={() => setShowLoginModal(true)}
-										onMouseEnter={() => setHoveredTooltip("login")}
-										onMouseLeave={() => setHoveredTooltip(null)}
-									/>
-								)}
-							</div>
-						)} */}
 						{!config?.compactMode && (
 							<div className="flex gap-2 items-center justify-start w-full h-full">
 								<button
-									onClick={() => openLink("https://getdione-app.deeivihh.workers.dev/github")}
+									type="button"
+									aria-label="Open Dione on GitHub"
+									onClick={() =>
+										openLink("https://github.com/pierrunoyt/dioneapp")
+									}
 									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative cursor-pointer"
 								>
 									<Icon name="GitHub" className="h-5 w-5 text-white" />
@@ -723,6 +461,8 @@ export default function Sidebar() {
 						{!config?.compactMode && (
 							<div className="flex gap-2 items-center justify-end w-full h-full">
 								<button
+									type="button"
+									aria-label={t("sidebar.tooltips.capture")}
 									onClick={() => window.captureScreenshot()}
 									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative cursor-pointer"
 									onMouseEnter={() => setHoveredTooltip("capture")}
@@ -737,6 +477,7 @@ export default function Sidebar() {
 								</button>
 								<Link
 									to={"/library"}
+									aria-label={t("sidebar.tooltips.library")}
 									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative"
 									onMouseEnter={() => setHoveredTooltip("library")}
 									onMouseLeave={() => setHoveredTooltip(null)}
@@ -750,6 +491,7 @@ export default function Sidebar() {
 								</Link>
 								<Link
 									to={"/settings"}
+									aria-label={t("sidebar.tooltips.settings")}
 									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative"
 									onMouseEnter={() => setHoveredTooltip("settings")}
 									onMouseLeave={() => setHoveredTooltip(null)}

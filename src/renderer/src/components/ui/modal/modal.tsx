@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import type React from "react";
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 
 interface ModalProps {
@@ -34,17 +34,46 @@ export default function Modal({
 	closeOnBackdropClick = true,
 	closeOnEscape = true,
 }: ModalProps) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const titleId = useId();
+	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
 	useEffect(() => {
-		if (!isOpen || !closeOnEscape) return;
+		if (!isOpen) return;
+		previouslyFocusedRef.current = document.activeElement as HTMLElement;
+		const dialog = dialogRef.current;
+		const selector =
+			'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+		(dialog?.querySelector<HTMLElement>(selector) ?? dialog)?.focus();
 
 		const handleEscape = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && closeOnEscape) {
 				onClose();
+			} else if (e.key === "Tab" && dialog) {
+				const items = Array.from(
+					dialog.querySelectorAll<HTMLElement>(selector),
+				);
+				if (!items.length) {
+					e.preventDefault();
+					dialog.focus();
+				} else if (e.shiftKey && document.activeElement === items[0]) {
+					e.preventDefault();
+					items[items.length - 1].focus();
+				} else if (
+					!e.shiftKey &&
+					document.activeElement === items[items.length - 1]
+				) {
+					e.preventDefault();
+					items[0].focus();
+				}
 			}
 		};
 
 		document.addEventListener("keydown", handleEscape);
-		return () => document.removeEventListener("keydown", handleEscape);
+		return () => {
+			document.removeEventListener("keydown", handleEscape);
+			previouslyFocusedRef.current?.focus();
+		};
 	}, [isOpen, onClose, closeOnEscape]);
 
 	const modalContent = (
@@ -63,6 +92,12 @@ export default function Modal({
 
 					{/* Modal Content */}
 					<motion.div
+						ref={dialogRef}
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby={title ? titleId : undefined}
+						aria-label={title ? undefined : "Dialog"}
+						tabIndex={-1}
 						key={`modal-${maxWidth}`}
 						initial={{ opacity: 0, scale: 0.95, y: 20 }}
 						animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -74,15 +109,19 @@ export default function Modal({
 						{(title || showCloseButton) && (
 							<div className="px-6 pt-6 pb-2 flex items-center justify-between">
 								{title && (
-									<h2 className="text-xl font-semibold text-white w-full">
+									<h2
+										id={titleId}
+										className="text-xl font-semibold text-white w-full"
+									>
 										{title}
 									</h2>
 								)}
 								{showCloseButton && (
 									<button
 										onClick={onClose}
-										className="ml-auto p-2 rounded-xl hover:bg-white/10 text-neutral-300 hover:text-white transition-colors duration-200 cursor-pointer"
+										className="ml-auto p-2 rounded-xl hover:bg-white/10 text-neutral-300 hover:text-white transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
 										type="button"
+										aria-label="Close dialog"
 									>
 										<X className="w-5 h-5" />
 									</button>

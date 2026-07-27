@@ -1,4 +1,3 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import { useScriptsContext } from "@/components/contexts/scripts-context";
 import GeneratedIcon from "@/components/icons/generated-icon";
 import Icon from "@/components/icons/icon";
@@ -35,11 +34,9 @@ import { Link, useLocation } from "react-router-dom";
 
 export default function TopbarNav() {
 	const { t } = useTranslation();
-	// const { user, loading } = useAuthContext();
 	const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
 	const { activeApps, handleStopApp, isServerRunning, setExitRef } =
 		useScriptsContext();
-	// const [avatarError, setAvatarError] = useState(false);
 	const [showModal, setShowModal] = useState(false);
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -273,10 +270,11 @@ export default function TopbarNav() {
 						<Link
 							to="/"
 							id="no-draggable"
-							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${isActivePath("/")
-								? "bg-white/15 text-white"
-								: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
-								}`}
+							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${
+								isActivePath("/")
+									? "bg-white/15 text-white"
+									: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+							}`}
 						>
 							<Home className="h-4 w-4" />
 							<span>{t("home.title")}</span>
@@ -285,10 +283,11 @@ export default function TopbarNav() {
 						<Link
 							to="/library"
 							id="no-draggable"
-							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${isActivePath("/library")
-								? "bg-white/15 text-white"
-								: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
-								}`}
+							className={`px-3 py-1.5 rounded-xl transition-all duration-200 flex items-center gap-2 text-sm shrink-0 ${
+								isActivePath("/library")
+									? "bg-white/15 text-white"
+									: "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+							}`}
 						>
 							<Library className="h-4 w-4" />
 							<span>{t("sidebar.tooltips.library")}</span>
@@ -311,6 +310,8 @@ export default function TopbarNav() {
 						)}
 						<IconButton
 							id="no-draggable"
+							type="button"
+							aria-label={t("sidebar.tooltips.capture")}
 							onClick={() => window.captureScreenshot()}
 							variant="ghost"
 							size="sm"
@@ -318,59 +319,18 @@ export default function TopbarNav() {
 							className="relative"
 							onMouseEnter={() => setHoveredTooltip("capture")}
 							onMouseLeave={() => setHoveredTooltip(null)}
-						></IconButton>
+						/>
 
-						<Link to="/settings">
-							<IconButton
-								id="no-draggable"
-								variant="ghost"
-								size="sm"
-								icon={<Settings className="h-4 w-4" />}
-								className="relative"
-								onMouseEnter={() => setHoveredTooltip("settings")}
-								onMouseLeave={() => setHoveredTooltip(null)}
-							></IconButton>
+						<Link
+							to="/settings"
+							id="no-draggable"
+							aria-label={t("sidebar.tooltips.settings")}
+							className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl text-neutral-300 transition-all duration-300 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/70"
+							onMouseEnter={() => setHoveredTooltip("settings")}
+							onMouseLeave={() => setHoveredTooltip(null)}
+						>
+							<Settings className="h-4 w-4" />
 						</Link>
-
-						{/* removed auth stuff to avoid security risks, read more in README.md */}
-						{/* {user && (
-							<Link
-								to="/library"
-								id="no-draggable"
-								className="flex items-center gap-2 p-1.5 hover:bg-white/10 rounded-xl transition-colors"
-							>
-								{!avatarError ? (
-									<img
-										src={user.avatar_url}
-										alt={user.username}
-										className="h-6 w-6 rounded-xl"
-										onError={() => setAvatarError(true)}
-									/>
-								) : (
-									<div className="h-6 w-6 rounded-xl bg-white/20 flex items-center justify-center">
-										<User className="h-4 w-4" />
-									</div>
-								)}
-								<span className="text-sm text-neutral-300">
-									{user.username}
-								</span>
-							</Link>
-						)}
-
-						{!loading && !user && (
-							<Button
-								id="no-draggable"
-								variant="primary"
-								size="sm"
-								className="bg-white hover:bg-white/90 text-black font-medium flex items-center gap-2"
-								onClick={() =>
-									openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true")
-								}
-							>
-								<User className="h-4 w-4" />
-								{t("sidebar.tooltips.login")}
-							</Button>
-						)} */}
 
 						{/* Separator + window controls - hidden on macOS (native traffic lights show) */}
 						{!isMac && (

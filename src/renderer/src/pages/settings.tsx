@@ -1,4 +1,3 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import VariablesModal from "@/components/features/modals/variables";
 import SettingsTabs, {
 	type TabType,
@@ -31,7 +30,6 @@ export default function Settings() {
 	});
 	const [config, setConfig] = useState<any | null>(null);
 	const { setLanguage, language, t } = useTranslation();
-	// const { logout } = useAuthContext();
 	const { handleReloadQuickLaunch } = useScriptsContext();
 	const navigate = useNavigate();
 	const { addToast } = useToast();

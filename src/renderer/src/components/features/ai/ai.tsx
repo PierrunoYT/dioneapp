@@ -2,7 +2,7 @@ import { useAIContext } from "@/components/contexts/ai-context";
 import { useScriptsLogsContext } from "@/components/contexts/scripts-context";
 import Messages from "@/components/features/ai/messages";
 import { Input } from "@/components/ui";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { InstallAIModal } from "../modals/install-ai";
 
@@ -19,6 +19,7 @@ export default function AI({
 }) {
 	const [open, setOpen] = useState(false);
 	const logsEndRef = useRef<HTMLDivElement>(null);
+	const shouldReduceMotion = useReducedMotion();
 
 	// ai
 	const {
@@ -120,18 +121,23 @@ export default function AI({
 										backgroundSize: "400% 400%",
 										opacity: 0.3,
 									}}
-									animate={{
-										backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
-										transition: {
-											duration: 8,
-											ease: "easeInOut",
-											repeat: Number.POSITIVE_INFINITY,
-										},
-									}}
+									animate={
+										shouldReduceMotion
+											? undefined
+											: {
+													backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+													transition: {
+														duration: 8,
+														ease: "easeInOut",
+														repeat: Number.POSITIVE_INFINITY,
+													},
+												}
+									}
 								/>
 								<Input
 									type="text"
 									autoFocus
+									aria-label="Ask AI"
 									className="w-full h-10 text-sm text-white/90 placeholder-white/50"
 									placeholder="Ask AI..."
 									onKeyDown={(e) => {
@@ -147,10 +153,13 @@ export default function AI({
 							</motion.div>
 						)}
 					</AnimatePresence>
-					<motion.div key="closed-div" title={open ? "Close" : "Open"}>
-						<div
+					<motion.div key="closed-div">
+						<button
+							type="button"
+							title={open ? "Close" : "Open"}
+							aria-label={open ? "Close AI assistant" : "Open AI assistant"}
 							onClick={() => setOpen(!open)}
-							className="h-10 w-10 rounded-xl backdrop-blur-3xl opacity-80 cursor-pointer"
+							className="h-10 w-10 rounded-xl backdrop-blur-3xl opacity-80 cursor-pointer focus-visible:ring-2 focus-visible:ring-white/70"
 						>
 							<motion.div
 								className="w-full h-full rounded-xl shadow-2xl blur-[6px] hover:blur-xs transition-all duration-300"
@@ -159,16 +168,20 @@ export default function AI({
 										"linear-gradient(45deg, #7c3aed, #6d28d9, #a855f7, #d946ef, #ec4899)",
 									backgroundSize: "400% 400%",
 								}}
-								animate={{
-									backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
-								}}
+								animate={
+									shouldReduceMotion
+										? undefined
+										: {
+												backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+											}
+								}
 								transition={{
 									duration: 8,
 									ease: "easeInOut",
-									repeat: Number.POSITIVE_INFINITY,
+									repeat: shouldReduceMotion ? 0 : Number.POSITIVE_INFINITY,
 								}}
 							/>
-						</div>
+						</button>
 						{!open && (
 							<span className="bg-black rounded-xl text-sm blur-xl group-hover:blur-none group-hover:right-12 opacity-0 group-hover:opacity-100 transition-all duration-200 absolute right-4 top-1/2 -translate-y-1/2 px-3 whitespace-nowrap">
 								Use AI

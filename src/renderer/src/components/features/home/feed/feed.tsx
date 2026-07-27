@@ -183,16 +183,17 @@ export default function List({
 					<span>{t("feed.reachedEnd")}</span>
 					<span>
 						{t("feed.notEnoughApps")}{" "}
-						<span
+						<button
+							type="button"
 							onClick={() =>
 								openLink(
 									"https://getdione-app.pages.dev/developer-guide/creating-a-dione-script",
 								)
 							}
-							className="cursor-pointer hover:text-neutral-300 underline underline-offset-4 text-neutral-400 transition-colors duration-300"
+							className="cursor-pointer hover:text-neutral-300 underline underline-offset-4 text-neutral-400 transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-white/70"
 						>
 							{t("feed.helpAddMore")}
-						</span>
+						</button>
 						.
 					</span>
 				</div>

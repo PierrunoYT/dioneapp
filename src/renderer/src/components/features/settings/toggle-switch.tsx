@@ -1,14 +1,28 @@
 interface ToggleSwitchProps {
 	enabled: boolean;
 	onChange: (enabled: boolean) => void;
+	label?: string;
+	"aria-labelledby"?: string;
+	"aria-describedby"?: string;
 }
 
-export default function ToggleSwitch({ enabled, onChange }: ToggleSwitchProps) {
+export default function ToggleSwitch({
+	enabled,
+	onChange,
+	label = "Toggle setting",
+	"aria-labelledby": ariaLabelledBy,
+	"aria-describedby": ariaDescribedBy,
+}: ToggleSwitchProps) {
 	return (
 		<button
 			type="button"
+			role="switch"
+			aria-checked={enabled}
+			aria-label={ariaLabelledBy ? undefined : label}
+			aria-labelledby={ariaLabelledBy}
+			aria-describedby={ariaDescribedBy}
 			onClick={() => onChange(!enabled)}
-			className={`relative w-12 h-6 flex items-center rounded-xl p-1 transition-colors duration-300 border border-white/5 cursor-pointer ${
+			className={`relative w-12 h-6 flex items-center rounded-xl p-1 transition-colors duration-300 border border-white/5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 ${
 				enabled ? "" : "bg-red-500/30"
 			}`}
 			style={

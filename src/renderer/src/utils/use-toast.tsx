@@ -17,24 +17,43 @@ export const ToastProvider: React.FC<{
 	children: React.ReactNode;
 	removeAfter?: number;
 }> = ({ children, removeAfter }) => {
-	const seconds = removeAfter || 3000;
+	const seconds = removeAfter ?? 3000;
 	const [toasts, setToasts] = React.useState<(ToastType & { id: string })[]>(
 		[],
 	);
-
-	const addToast = React.useCallback((toast: ToastType) => {
-		const id = Math.random().toString();
-		const newToast = { ...toast, id };
-		setToasts((prev) => [...prev, newToast]);
-		if (toast.fixed === "false" || toast.fixed === undefined) {
-			setTimeout(() => {
-				removeToast(id);
-			}, seconds);
-		}
-	}, []);
+	const timeoutIds = React.useRef(
+		new Map<string, ReturnType<typeof setTimeout>>(),
+	);
 
 	const removeToast = React.useCallback((id: string) => {
+		const timeoutId = timeoutIds.current.get(id);
+		if (timeoutId !== undefined) {
+			clearTimeout(timeoutId);
+			timeoutIds.current.delete(id);
+		}
 		setToasts((prev) => prev.filter((toast) => toast.id !== id));
+	}, []);
+
+	const addToast = React.useCallback(
+		(toast: ToastType) => {
+			const id = Math.random().toString();
+			const newToast = { ...toast, id };
+			setToasts((prev) => [...prev, newToast]);
+			if (toast.fixed === "false" || toast.fixed === undefined) {
+				const timeoutId = setTimeout(() => removeToast(id), seconds);
+				timeoutIds.current.set(id, timeoutId);
+			}
+		},
+		[removeToast, seconds],
+	);
+
+	React.useEffect(() => {
+		return () => {
+			for (const timeoutId of timeoutIds.current.values()) {
+				clearTimeout(timeoutId);
+			}
+			timeoutIds.current.clear();
+		};
 	}, []);
 
 	return (

@@ -3,7 +3,7 @@ import Messages from "@/components/features/ai/messages";
 import Models from "@/components/features/ai/models";
 import { InstallAIModal } from "@/components/features/modals/install-ai";
 import { Button, Input } from "@/components/ui";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
 	ArrowRight,
 	BrushCleaning,
@@ -40,6 +40,7 @@ export default function QuickAI() {
 	} = useAIContext();
 	const logsEndRef = useRef<HTMLDivElement>(null);
 	const [inputValue, setInputValue] = useState("");
+	const shouldReduceMotion = useReducedMotion();
 
 	useEffect(() => {
 		checkOllama();
@@ -72,26 +73,36 @@ export default function QuickAI() {
 						{messages.length === 0 && !showModelHub ? (
 							<>
 								<ul className="text-sm gap-2 flex flex-col items-start justify-start w-full text-pretty max-w-2xl text-neutral-300 ">
-									<li
-										onClick={() => chat("Open FaceFusion")}
-										className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200"
-									>
-										"Open FaceFusion" <ArrowRight className="ml-2" size={16} />
+									<li>
+										<button
+											type="button"
+											onClick={() => chat("Open FaceFusion")}
+											className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-white/70"
+										>
+											"Open FaceFusion"{" "}
+											<ArrowRight className="ml-2" size={16} />
+										</button>
 									</li>
-									<li
-										onClick={() => chat("Install Applio")}
-										className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200"
-									>
-										"Install Applio" <ArrowRight className="ml-2" size={16} />
+									<li>
+										<button
+											type="button"
+											onClick={() => chat("Install Applio")}
+											className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-white/70"
+										>
+											"Install Applio" <ArrowRight className="ml-2" size={16} />
+										</button>
 									</li>
-									<li
-										onClick={() =>
-											chat("What is the latest application in Dione?")
-										}
-										className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200"
-									>
-										"What is the latest application in Dione?"{" "}
-										<ArrowRight className="ml-2" size={16} />
+									<li>
+										<button
+											type="button"
+											onClick={() =>
+												chat("What is the latest application in Dione?")
+											}
+											className="bg-white/10 px-4 py-1 rounded-xl flex gap-2 items-center hover:text-neutral-100 cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-white/70"
+										>
+											"What is the latest application in Dione?"{" "}
+											<ArrowRight className="ml-2" size={16} />
+										</button>
 									</li>
 								</ul>
 								{!ollamaRunning && ollamaInstalled && !showModelHub && (
@@ -129,6 +140,11 @@ export default function QuickAI() {
 										? "Stop Ollama"
 										: "Start Ollama"
 								}
+								aria-label={
+									ollamaRunning && ollamaInstalled
+										? "Stop Ollama"
+										: "Start Ollama"
+								}
 								onClick={
 									ollamaRunning && ollamaInstalled
 										? handleStopOllama
@@ -147,6 +163,7 @@ export default function QuickAI() {
 								size="icon-sm"
 								onClick={() => setMessages([])}
 								title="Clear chat"
+								aria-label="Clear chat"
 								className="border-white/40 hover:border-neutral-200 group"
 							>
 								<BrushCleaning className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-200" />
@@ -184,18 +201,23 @@ export default function QuickAI() {
 								backgroundSize: "400% 400%",
 								opacity: 0.12,
 							}}
-							animate={{
-								backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
-								transition: {
-									duration: 8,
-									ease: "easeInOut",
-									repeat: Number.POSITIVE_INFINITY,
-								},
-							}}
+							animate={
+								shouldReduceMotion
+									? undefined
+									: {
+											backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+											transition: {
+												duration: 8,
+												ease: "easeInOut",
+												repeat: Number.POSITIVE_INFINITY,
+											},
+										}
+							}
 						/>
 						<div className="flex max-w-2xl min-h-15 h-15 bg-white/5 backdrop-blur-3xl border hover:border-neutral-700 border-white/5 w-full rounded-xl overflow-hidden">
 							<Input
 								className="w-full h-full focus:outline-neutral-800 rounded-xl border-none bg-transparent text-white px-4"
+								aria-label="Message Dio"
 								type="text"
 								placeholder="Ask Dio..."
 								value={inputValue}

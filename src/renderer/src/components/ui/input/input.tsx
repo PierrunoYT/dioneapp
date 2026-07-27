@@ -3,7 +3,7 @@ import type React from "react";
 import { forwardRef } from "react";
 
 const inputVariants = cva(
-	"w-full bg-white/10 border border-white/5 text-neutral-200 rounded-xl focus:outline-none hover:bg-white/20 transition-colors duration-200",
+	"w-full bg-white/10 border border-white/5 text-neutral-200 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 hover:bg-white/20 transition-colors duration-200",
 	{
 		variants: {
 			size: {
@@ -46,6 +46,7 @@ export { Input, inputVariants };
 interface InputWithIconProps extends Omit<InputProps, "size"> {
 	icon?: React.ReactNode;
 	onIconClick?: () => void;
+	iconLabel?: string;
 	iconPosition?: "left" | "right";
 	size?: "sm" | "md" | "lg";
 }
@@ -55,6 +56,7 @@ export const InputWithIcon = forwardRef<HTMLInputElement, InputWithIconProps>(
 		{
 			icon,
 			onIconClick,
+			iconLabel = "Input action",
 			iconPosition = "right",
 			className = "",
 			size,
@@ -71,14 +73,25 @@ export const InputWithIcon = forwardRef<HTMLInputElement, InputWithIconProps>(
 
 		return (
 			<div className={`relative ${className}`}>
-				{iconPosition === "left" && hasIcon && (
-					<div
-						onClick={iconClickable ? onIconClick : undefined}
-						className={`absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 ${iconClickable ? "cursor-pointer" : "cursor-default pointer-events-none"}`}
-					>
-						{icon}
-					</div>
-				)}
+				{iconPosition === "left" &&
+					hasIcon &&
+					(iconClickable ? (
+						<button
+							type="button"
+							aria-label={iconLabel}
+							onClick={onIconClick}
+							className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 cursor-pointer focus-visible:ring-2 focus-visible:ring-white/70"
+						>
+							{icon}
+						</button>
+					) : (
+						<span
+							aria-hidden="true"
+							className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
+						>
+							{icon}
+						</span>
+					))}
 
 				<input
 					className={`${inputVariants({ size, variant })} ${hasIcon ? paddingClassName : ""}`}
@@ -86,14 +99,25 @@ export const InputWithIcon = forwardRef<HTMLInputElement, InputWithIconProps>(
 					{...props}
 				/>
 
-				{iconPosition === "right" && hasIcon && (
-					<div
-						onClick={iconClickable ? onIconClick : undefined}
-						className={`absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 ${iconClickable ? "cursor-pointer" : "cursor-default pointer-events-none"}`}
-					>
-						{icon}
-					</div>
-				)}
+				{iconPosition === "right" &&
+					hasIcon &&
+					(iconClickable ? (
+						<button
+							type="button"
+							aria-label={iconLabel}
+							onClick={onIconClick}
+							className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 cursor-pointer focus-visible:ring-2 focus-visible:ring-white/70"
+						>
+							{icon}
+						</button>
+					) : (
+						<span
+							aria-hidden="true"
+							className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
+						>
+							{icon}
+						</span>
+					))}
 			</div>
 		);
 	},
@@ -102,7 +126,7 @@ export const InputWithIcon = forwardRef<HTMLInputElement, InputWithIconProps>(
 InputWithIcon.displayName = "InputWithIcon";
 
 const textareaVariants = cva(
-	"w-full bg-white/10 border border-white/5 text-neutral-200 rounded-xl focus:outline-none hover:bg-white/20 transition-colors duration-200 resize-none",
+	"w-full bg-white/10 border border-white/5 text-neutral-200 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 hover:bg-white/20 transition-colors duration-200 resize-none",
 	{
 		variants: {
 			size: {

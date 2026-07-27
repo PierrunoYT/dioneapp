@@ -2,15 +2,9 @@
 
 Dione had an amazing 2025, with **25k+ downloads** and **10k+ users**.
 
-As of 2026, the original maintainers have stepped back. While the app still has potential, **we no longer have the time or support to maintain it**.
+As of 2026, the original maintainers have stepped back from day-to-day maintenance. Dione is now community-maintained, and pull requests, new scripts, fixes, and documentation improvements are welcome.
 
-The app is now self-sufficient using free resources, but **getdione.app and justusedione.com will stop working after April 10, 2026**. We’ve also removed all sensitive data features (such as login and user accounts) to prevent potential security risks in an unmaintained state.
-
-The repository is still open to the community: pull requests, new scripts, and improvements are welcome.
-
-**Want to take over the project (repo + ms store app + domain)?** Contact with us on [Discord](https://discord.com/users/697234219470159903) or [Twitter/X](https://x.com/deeivihh) and show your enthusiasm for keeping Dione alive.
-
-We’d love to see Dione continue in new hands! ❤️
+The former account and login features have been removed. Current project information and releases are published in this GitHub repository.
 
 # Dione: Explore, Install, Innovate — in 1 Click
 
@@ -26,11 +20,11 @@ For developers, Dione offers a zero-friction way to distribute apps using just a
 
 ## Download
 
-Download the latest release for your platform from [our website](https://getdione-app.deeivihh.workers.dev/download).
+Download the latest release for your platform from [GitHub Releases](https://github.com/pierrunoyt/dioneapp/releases).
 
 ## Documentation
 
-**Want to create and distribute apps with Dione?** Refer to the [developer documentation](https://getdione-app.pages.dev/developer-guide/creating-a-dione-script) for comprehensive instructions on writing Dione scripts and app packaging.
+**Want to create and distribute apps with Dione?** See the project documentation and examples in the [Dione repository](https://github.com/pierrunoyt/dioneapp) for guidance on scripts and app packaging.
 
 ## Contributing
 
@@ -39,20 +33,20 @@ If you're interested in contributing or running Dione locally, follow these step
 ### Prerequisites
 
 * [Node.js](https://nodejs.org/en/download/)
-* [pnpm](https://pnpm.io/installation)
+* [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
 ### Run Locally
 
 ```bash
 # Clone the repo
-git clone https://github.com/dioneapp/dioneapp.git
+git clone https://github.com/pierrunoyt/dioneapp.git
 cd dioneapp
 
 # Install dependencies
-pnpm install
+npm ci
 
 # Start development server
-pnpm dev
+npm run dev
 ```
 
 > **Yes, it really is this easy.** Despite how powerful Dione is, the development setup is genuinely this simple. Please note that some functions requiring database calls may have limitations in local development.
@@ -62,12 +56,11 @@ pnpm dev
 Set `platform` as one of: win, mac, linux
 
 ```bash
-pnpm build:[platform]
+npm run build:[platform]
 ```
 
-## Support & Contact
+## Community and Security
 
-* For questions or feedback, join our [Discord community](https://getdione-app.deeivihh.workers.dev/discord).
-* Security issues can be reported to [deeivihh3@hotmail.com](mailto:deeivihh3@hotmail.com).
+Community support is provided through [GitHub Issues](https://github.com/pierrunoyt/dioneapp/issues). Because maintainers are volunteers, response times and support are not guaranteed.
 
-## This project is now run entirely by the community
+Please report security vulnerabilities privately through [GitHub Security Advisories](https://github.com/pierrunoyt/dioneapp/security/advisories/new), rather than opening a public issue.

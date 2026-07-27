@@ -1,4 +1,3 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import Background from "@/components/features/first-time/background";
 import Setup from "@/components/features/first-time/onboarding/setup";
 import ExecuteSound from "@/components/features/first-time/sounds/sound";
@@ -6,116 +5,57 @@ import Titlebar from "@/components/features/layout/titlebar";
 import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
-// import { apiJson } from "@/utils/api";
-// import { saveExpiresAt, saveId, saveRefreshToken } from "@/utils/secure-tokens";
-// import { useToast } from "@/utils/use-toast";
-import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 export default function FirstTime() {
 	const { t } = useTranslation();
-	// const { user, setUser, setRefreshSessionToken } = useAuthContext();
+	const shouldReduceMotion = useReducedMotion();
 	const firstLaunch = localStorage.getItem("firstLaunch");
-	// toast stuff
-	// const { addToast } = useToast();
-	// const showToast = (
-	// 	variant: "default" | "success" | "error" | "warning",
-	// 	message: string,
-	// 	fixed?: "true" | "false",
-	// ) => {
-	// 	addToast({
-	// 		variant,
-	// 		children: message,
-	// 		fixed,
-	// 	});
-	// };
-
-	// const copyToClipboard = () => {
-	// 	window.copyToClipboard.writeText(
-	// 		"https://getdione-app.deeivihh.workers.dev/auth/login?app=true",
-	// 	);
-	// 	showToast("success", t("firstTime.clipboard.success"));
-	// };
-
-	// auth
-	// const [authToken, setAuthToken] = useState<string | null>(null);
-	// const [refreshToken, setRefreshToken] = useState<string | null>(null);
 
 	// levels
 	const [level, setLevel] = useState(1);
 	const [_isTransitioning, setIsTransitioning] = useState(false);
 	const [_prevLevel, setPrevLevel] = useState(1);
+	const levelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+
+	const clearTransitionTimers = useCallback(() => {
+		if (levelTimeoutRef.current !== null) {
+			clearTimeout(levelTimeoutRef.current);
+			levelTimeoutRef.current = null;
+		}
+		if (transitionTimeoutRef.current !== null) {
+			clearTimeout(transitionTimeoutRef.current);
+			transitionTimeoutRef.current = null;
+		}
+	}, []);
+
+	useEffect(() => clearTransitionTimers, [clearTransitionTimers]);
 
 	// handle level changes with transitions
-	const changeLevel = (newLevel) => {
+	const changeLevel = (newLevel: number) => {
+		clearTransitionTimers();
 		setPrevLevel(level);
-		setIsTransitioning(true);
-		setTimeout(() => {
+		if (shouldReduceMotion) {
 			setLevel(newLevel);
-			setTimeout(() => {
+			setIsTransitioning(false);
+			return;
+		}
+
+		setIsTransitioning(true);
+		levelTimeoutRef.current = setTimeout(() => {
+			levelTimeoutRef.current = null;
+			setLevel(newLevel);
+			transitionTimeoutRef.current = setTimeout(() => {
+				transitionTimeoutRef.current = null;
 				setIsTransitioning(false);
 			}, 50);
 		}, 500);
 	};
-
-	// removed auth stuff to avoid security risks, read more in README.md
-	// useEffect(() => {
-	// 	function shouldRedirect() {
-	// 		if (user) {
-	// 			changeLevel(3);
-	// 		}
-	// 	}
-	// 	shouldRedirect();
-	// }, []);
-	// useEffect(() => {
-	// 	const listenForAuthToken = () => {
-	// 		window.electron.ipcRenderer.on("auth-token", (_event, authToken) => {
-	// 			setAuthToken(authToken);
-	// 		});
-	// 		window.electron.ipcRenderer.on(
-	// 			"refresh-token",
-	// 			(_event, refreshToken) => {
-	// 				setRefreshToken(refreshToken);
-	// 			},
-	// 		);
-	// 	};
-	// 	listenForAuthToken();
-	// }, []);
-	// useEffect(() => {
-	// 	if (authToken && refreshToken) {
-	// 		async function setSessionAPI(token: string, refreshToken: string) {
-	// 			const data = await apiJson<any>("/db/set-session", {
-	// 				headers: {
-	// 					accessToken: token,
-	// 					refreshToken: refreshToken,
-	// 					api_key: import.meta.env.LOCAL_API_KEY || "",
-	// 				},
-	// 			});
-	// 			if (data.session) {
-	// 				window.electron.ipcRenderer.send("start-session", {
-	// 					user: data.user,
-	// 				});
-	// 				await saveExpiresAt(data.session.expires_at);
-	// 				await saveRefreshToken(data.session.refresh_token);
-	// 				setRefreshSessionToken(data.session.refresh_token);
-	// 				getUser(data.user.id);
-	// 				changeLevel(3);
-	// 			}
-	// 		}
-
-	// 		setSessionAPI(authToken, refreshToken);
-	// 	}
-	// }, [authToken, refreshToken]);
-	// async function getUser(id: string) {
-	// 	const data = await apiJson<any>(`/db/user/${id}`, {
-	// 		headers: {
-	// 			api_key: import.meta.env.LOCAL_API_KEY || "",
-	// 		},
-	// 	});
-	// 	setUser(data[0]);
-	// 	await saveId(data[0].id);
-	// }
 
 	function onSelectLanguage() {
 		changeLevel(5);
@@ -134,7 +74,7 @@ export default function FirstTime() {
 			<motion.div
 				initial={{ opacity: 0 }}
 				animate={{ opacity: 1 }}
-				transition={{ duration: 1 }}
+				transition={{ duration: shouldReduceMotion ? 0 : 1 }}
 				className="absolute blur-sm h-full w-full"
 				style={{
 					backgroundColor:
@@ -207,12 +147,11 @@ export default function FirstTime() {
 								className="bg-white/10 w-44 mt-6 rounded-xl p-1.5 text-sm text-neutral-300 hover:bg-white/20 transition-colors duration-300 cursor-pointer relative overflow-hidden"
 								onClick={() => {
 									changeLevel(3);
-									// openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
 								}}
 							>
 								<motion.div
 									initial={{ x: "-100%" }}
-									animate={{ x: "100%" }}
+									animate={shouldReduceMotion ? undefined : { x: "100%" }}
 									transition={{
 										duration: 2,
 										repeat: Number.POSITIVE_INFINITY,
@@ -221,51 +160,12 @@ export default function FirstTime() {
 									className="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent"
 								/>
 								<span className="relative z-10">
-									{t("firstTime.welcome.skipLogin")}
+									{t("languageSelector.next")}
 								</span>
 							</motion.button>
 						</motion.div>
 					</motion.div>
 				)}
-				{/* 2 - logging in */}
-				{/* {level === 2 && (
-					<motion.div exit={{ opacity: 0, filter: "blur(20px)" }} transition={{ duration: 0.3 }} key={2} className={getContainerClasses()}>
-						<div className="flex flex-col gap-4 justify-center items-center mt-12">
-							<h1 className="text-6xl font-semibold">
-								{t("firstTime.loggingIn.title")}
-							</h1>
-						</div>
-						<div className="mt-6 flex flex-col gap-4">
-							<div className="flex flex-col gap-2 items-center justify-center">
-								<h3 className="text-white/50 text-xs">
-									{t("firstTime.loggingIn.authError")}
-								</h3>
-							<Button
-								variant="secondary"
-								size="sm"
-								onClick={() => {
-									changeLevel(1);
-								}}
-								className="w-28"
-							>
-								{t("firstTime.loggingIn.retry")}
-							</Button>
-							</div>
-						</div>
-					</motion.div>
-				)} */}
-				{/* {level === 2 && (
-					<motion.div className={getContainerClasses()}>
-						<div className="flex flex-col gap-4 justify-center items-center">
-							<SureNotLogin
-								onSkip={() => changeLevel(3)}
-								onLogin={() => {
-									openLink("https://getdione-app.deeivihh.workers.dev/auth/login?app=true");
-								}}
-							/>
-						</div>
-					</motion.div>
-				)} */}
 				{/* first time onboarding */}
 				{level === 3 && (
 					<motion.div
@@ -369,10 +269,11 @@ export default function FirstTime() {
 						{[1, 2, 3, 4].map((lvl) => (
 							<div key={lvl} className="py-1">
 								<div
-									className={`w-6 h-1 rounded-xl ${lvl === level || (level === 5 && lvl === 4)
-										? "w-10"
-										: "bg-white/20"
-										}`}
+									className={`w-6 h-1 rounded-xl ${
+										lvl === level || (level === 5 && lvl === 4)
+											? "w-10"
+											: "bg-white/20"
+									}`}
 									style={
 										lvl === level || (level === 5 && lvl === 4)
 											? { backgroundColor: "var(--theme-accent)" }

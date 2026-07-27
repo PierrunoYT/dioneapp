@@ -39,14 +39,15 @@ function ScriptCard({
 	};
 
 	return (
-		<div ref={innerRef}>
+		<div ref={innerRef} className="relative group h-full">
 			<Link
 				to={{
 					pathname: `/install/${script.isLocal ? encodeURIComponent(script.name) : script.id}`,
 					search: `?isLocal=${script.isLocal}`,
 				}}
 				onClick={handleClick}
-				className={`group flex flex-col justify-between gap-4 h-full border border-white/10 hover:border-white/20 transition-all duration-300 rounded-xl p-4 hover:shadow-xl relative overflow-hidden ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+				aria-disabled={disabled}
+				className={`group flex flex-col justify-between gap-4 h-full border border-white/10 hover:border-white/20 transition-all duration-300 rounded-xl p-4 hover:shadow-xl relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
 				style={{
 					background:
 						"linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-from) 8%, transparent), color-mix(in srgb, var(--theme-background) 50%, transparent), color-mix(in srgb, var(--theme-background) 80%, transparent))",
@@ -99,21 +100,6 @@ function ScriptCard({
 							</p>
 						</div>
 					</div>
-					{deleteScript && (
-						<div className="absolute right-4 top-4 z-20">
-							<button
-								onClick={(e) => {
-									e.preventDefault();
-									e.stopPropagation(); // prevents redirect
-									deleteScript(script.name);
-								}}
-								type="button"
-								className="opacity-0 group-hover:opacity-100 cursor-pointer hover:bg-red-500/20 bg-white/5 border border-white/10 hover:border-red-500/30 rounded-xl p-2 transition-all duration-300 text-neutral-400 hover:text-red-400"
-							>
-								<Trash className="h-3.5 w-3.5" />
-							</button>
-						</div>
-					)}
 				</div>
 				{!script.isLocal && (
 					<div className="flex items-center w-full relative z-10">
@@ -145,6 +131,16 @@ function ScriptCard({
 					</div>
 				)}
 			</Link>
+			{deleteScript && (
+				<button
+					onClick={() => deleteScript(script.name)}
+					type="button"
+					aria-label={`Delete ${script.name}`}
+					className="absolute right-4 top-4 z-20 opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer hover:bg-red-500/20 bg-white/5 border border-white/10 hover:border-red-500/30 rounded-xl p-2 transition-all duration-300 text-neutral-400 hover:text-red-400 focus-visible:ring-2 focus-visible:ring-white/70"
+				>
+					<Trash className="h-3.5 w-3.5" />
+				</button>
+			)}
 		</div>
 	);
 }

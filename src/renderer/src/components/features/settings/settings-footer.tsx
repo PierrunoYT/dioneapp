@@ -41,15 +41,17 @@ export default function SettingsFooter({
 				<div className="text-right">
 					<p>
 						CN:{" "}
-						<span
-							className="cursor-pointer hover:underline"
+						<button
+							type="button"
+							aria-label={`Copy codename ${codename}`}
+							className="cursor-pointer hover:underline focus-visible:ring-2 focus-visible:ring-white/70"
 							onClick={() => {
 								navigator.clipboard.writeText(codename);
 								showToast("success", "Copied to clipboard");
 							}}
 						>
 							{codename}
-						</span>
+						</button>
 					</p>
 					<p>
 						{t("settingsFooter.version")} {packVersion || "0.0.0"}

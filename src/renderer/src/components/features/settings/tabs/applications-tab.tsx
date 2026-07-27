@@ -60,6 +60,7 @@ export default function ApplicationsTab({
 							}
 						}}
 						icon={<Folder className="w-4 h-4 text-neutral-300" />}
+						iconLabel={t("settings.applications.installationDirectory.label")}
 						onIconClick={() =>
 							openFolder(joinPath(config.defaultInstallFolder))
 						}

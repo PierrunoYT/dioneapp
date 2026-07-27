@@ -1,4 +1,3 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import { ErrorBoundary } from "@/components/features/layout/error-handler";
 import OfflineIndicator from "@/components/features/layout/offline-indicator";
 import Sidebar from "@/components/features/layout/sidebar";
@@ -13,14 +12,12 @@ import Loading from "@/pages/loading";
 import QuickAI from "@/pages/quick-ai";
 import Report from "@/pages/report";
 import Settings from "@/pages/settings";
-import { TranslationProvider } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { initializeTheme } from "@/utils/theme";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function App() {
-	// const { user } = useAuthContext();
 	const location = useLocation();
 	const { pathname } = location;
 	const [_isFirstLaunch, setIsFirstLaunch] = useState<boolean>(false);
@@ -102,18 +99,6 @@ function App() {
 		fetchConfig();
 	}, []);
 
-	// removed auth stuff to avoid security risks, read more in README.md
-	// useEffect(() => {
-	// 	// start session
-	// 	handleStartSession();
-	// }, [user]);
-	// async function handleStartSession() {
-	// 	if (!user || user.id === "") return;
-	// 	window.electron.ipcRenderer.send("start-session", {
-	// 		user: user,
-	// 	});
-	// }
-
 	const routes = {
 		"*": ErrorPage,
 		"/": Home,
@@ -147,35 +132,33 @@ function App() {
 	const layoutMode = config?.layoutMode || "sidebar";
 
 	return (
-		<TranslationProvider>
-			<div className="h-screen w-screen overflow-hidden" id="main">
-				{pathname !== "/first-time" && layoutMode === "sidebar" && <Titlebar />}
-				<OfflineIndicator />
-				<div
-					className={`flex ${layoutMode === "topbar" ? "flex-col" : ""} h-screen`}
-				>
-					{pathname !== "/first-time" && (
-						<div
-							className={`${layoutMode === "topbar" ? "absolute w-full" : "h-full"}`}
-						>
-							{layoutMode === "sidebar" ? <Sidebar /> : <TopbarNav />}
-						</div>
-					)}
+		<div className="h-screen w-screen overflow-hidden" id="main">
+			{pathname !== "/first-time" && layoutMode === "sidebar" && <Titlebar />}
+			<OfflineIndicator />
+			<div
+				className={`flex ${layoutMode === "topbar" ? "flex-col" : ""} h-screen`}
+			>
+				{pathname !== "/first-time" && (
 					<div
-						className={`flex-1 ${layoutMode === "topbar" ? "mt-6	" : ""} w-full h-full overflow-x-hidden overflow-y-overlay`}
+						className={`${layoutMode === "topbar" ? "absolute w-full" : "h-full"}`}
 					>
-						<div
-							className="page page-transition w-full h-full"
-							key={location.pathname}
-						>
-							<ErrorBoundary>
-								<PageComponent />
-							</ErrorBoundary>
-						</div>
+						{layoutMode === "sidebar" ? <Sidebar /> : <TopbarNav />}
+					</div>
+				)}
+				<div
+					className={`flex-1 ${layoutMode === "topbar" ? "mt-6	" : ""} w-full h-full overflow-x-hidden overflow-y-overlay`}
+				>
+					<div
+						className="page page-transition w-full h-full"
+						key={location.pathname}
+					>
+						<ErrorBoundary>
+							<PageComponent />
+						</ErrorBoundary>
 					</div>
 				</div>
 			</div>
-		</TranslationProvider>
+		</div>
 	);
 }
 

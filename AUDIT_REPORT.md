@@ -45,6 +45,24 @@ The first 10 quick wins were implemented after the baseline audit. Six broader f
 
 The download workflow was also made awaitable through installation completion as part of removing `process.exit(1)`. Some download and validation failure branches still resolve rather than reject, so H-03 remains partially open.
 
+## Low-severity remediation update — July 27, 2026
+
+All nine low-severity findings from the baseline audit have been remediated:
+
+| Finding | Status | Remediation |
+|---|---|---|
+| L-01 | Resolved | Removed dormant renderer authentication/token modules, inactive login UI and comments, and stale auth types. Active main-process security code was left intact. |
+| L-02 | Resolved | Kept a single root `TranslationProvider` in `main.tsx`. |
+| L-03 | Resolved | Added names, roles, focus handling, keyboard navigation, focus restoration, and visible focus states to the audited selects, toggles, menus, dialogs, icon controls, carousel controls, cards, toast controls, and settings actions. Interactive elements are no longer nested in the audited card and topbar controls. This is a remediation of the identified defects, not a claim of full WCAG certification. |
+| L-04 | Resolved | Toast, onboarding, report-navigation, and AI redirect timers are tracked and cleared. The report flow also guards against scheduling a timer after an asynchronous submission finishes on an unmounted page. |
+| L-05 | Resolved | Onboarding, carousel/video, Quick AI, and floating AI decoration now honor reduced-motion preferences. Automatic carousel rotation is disabled when reduced motion is requested. |
+| L-06 | Resolved | `.editorconfig` now agrees with Biome's tab indentation policy. |
+| L-07 | Resolved | README development commands now consistently use `npm ci` and `npm run ...`. |
+| L-08 | Resolved | README repository, release, support, security, account-status, and maintenance-status copy was updated; stale renderer login entry points were removed. |
+| L-09 | Resolved | Added a deterministic lockfile-derived `THIRD_PARTY_NOTICES.md`, explicit reviewed overrides for the three lock entries without license metadata, packaging rules, and a build-time freshness check. |
+
+The **24/100 score remains the historical baseline score** and has not been recalculated. The unresolved critical, high, and medium findings continue to dominate current risk.
+
 ## Top 10 highest-impact issues
 
 | Rank | Severity | Issue | Effort |
@@ -545,15 +563,15 @@ if (activeInstallations.get(id) === controller) {
 
 | ID | Finding | Recommended fix | Effort |
 |---|---|---|---|
-| L-01 | `auth-context.tsx` and renderer `secure-tokens.ts` contain dormant commented security code, misleading maintainers about active protections. | Remove it or restore it as tested functionality. | S |
-| L-02 | The translation provider is mounted in both `main.tsx` and `App.tsx`, creating duplicate initialization and potentially divergent state. | Keep one root provider. | S |
-| L-03 | Custom selects, toggles, context menus, modals, and icon controls lack complete keyboard, focus, and ARIA behavior. | Prefer native controls or established accessible primitives. | M |
-| L-04 | Toast, onboarding, report, and redirect timers are not consistently cleared on unmount. | Track and clear timeout IDs. | S |
-| L-05 | Decorative infinite animations ignore reduced-motion preferences. | Use `prefers-reduced-motion` or Framer Motion's reduced-motion hook. | S |
-| L-06 | `.editorconfig` specifies spaces while Biome specifies tabs. | Align both configurations. | S |
-| L-07 | README documents pnpm while the lockfile, CI, and project policy use npm. | Standardize documentation on `npm ci` and `npm run ...`. | S |
-| L-08 | README directs users to endpoints it declares obsolete and contains account copy inconsistent with current functionality. | Update download/support links and product-status documentation. | S |
-| L-09 | No generated third-party license notice was found despite packaging a large dependency tree. | Generate and ship a dependency license inventory. | S–M |
+| L-01 | **Resolved July 27, 2026.** Dormant renderer authentication and token code was removed. | Keep security documentation tied to active, tested controls. | — |
+| L-02 | **Resolved July 27, 2026.** A single root translation provider remains. | Keep provider ownership in `main.tsx`. | — |
+| L-03 | **Resolved July 27, 2026.** The identified custom controls now have keyboard, focus, and ARIA behavior. | Include accessibility interaction checks when adding controls. | — |
+| L-04 | **Resolved July 27, 2026.** Identified UI timers are lifecycle-safe. | Continue tracking every stateful timer and asynchronous continuation. | — |
+| L-05 | **Resolved July 27, 2026.** Identified decorative infinite animations honor reduced motion. | Apply the same policy to new animation surfaces. | — |
+| L-06 | **Resolved July 27, 2026.** EditorConfig and Biome both specify tabs. | Keep formatting configuration synchronized. | — |
+| L-07 | **Resolved July 27, 2026.** README uses npm's reproducible install workflow. | Keep examples aligned with CI and the lockfile. | — |
+| L-08 | **Resolved July 27, 2026.** Project-status, account, download, support, and security documentation is current. | Review external links during releases. | — |
+| L-09 | **Resolved July 27, 2026.** A deterministic dependency-license inventory is generated, checked, and packaged. | Regenerate notices after every lockfile change. | — |
 
 ---
 

@@ -1,4 +1,3 @@
-// import { useAuthContext } from "@/components/contexts/auth-context";
 import WorkspaceEditor from "@/components/features/editor/editor";
 import ActionsComponent from "@/components/features/install/actions";
 import IframeComponent from "@/components/features/install/iframe";
@@ -8,7 +7,6 @@ import CustomCommandsModal from "@/components/features/modals/custom-commands";
 import DeleteLoadingModal from "@/components/features/modals/delete-loading";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, apiJson } from "@/utils/api";
-// import sendEvent from "@/utils/events";
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -79,10 +77,6 @@ export default function Install({
 	const [selectedDeps, setSelectedDeps] = useState<any>([]);
 	// config
 	const [config, setConfig] = useState<any>(null);
-	// user
-	// const { user } = useAuthContext();
-	// const [saved, setSaved] = useState(false);
-	// const savedApps = JSON.parse(localStorage.getItem("savedApps") || "[]");
 	// max apps limit (default 6)
 	const maxApps = 6;
 	// not supported modal
@@ -814,67 +808,9 @@ export default function Install({
 	}
 
 	async function handleShare() {
-		// removed analytics stuff to avoid security risks, read more in README.md
-		// if (user.id && user !== undefined && user !== null) {
-		// 	await sendEvent({
-		// 		user: user.id,
-		// 		type: "event",
-		// 		event: "share",
-		// 		app_id: data?.id,
-		// 		app_name: data?.name,
-		// 	});
-		// }
 		window.copyToClipboard.writeText(`dione://download=${data?.id}`);
 		showToast("success", t("toast.install.success.shared"));
 	}
-
-	// removed auth stuff to avoid security risks, read more in README.md
-	// async function handleSave() {
-	// 	if (!saved) {
-	// 		if (!user.id) return;
-	// 		if (user.id && user !== undefined && user !== null) {
-	// 			const result = await sendEvent({
-	// 				user: user.id,
-	// 				type: "event",
-	// 				event: "save_app",
-	// 				app_id: data?.id,
-	// 				app_name: data?.name,
-	// 			});
-
-	// 			if (result === "error") return;
-	// 			const newSaved = { eventId: result.id, appId: data?.id };
-	// 			localStorage.setItem(
-	// 				"savedApps",
-	// 				JSON.stringify([...savedApps, newSaved]),
-	// 			);
-	// 			setSaved(true);
-	// 		}
-	// 	} else {
-	// 		if (!user.id) return;
-	// 		if (user.id && user !== undefined && user !== null) {
-	// 			const eventId = savedApps.find(
-	// 				(app) => app.appId === data?.id,
-	// 			)?.eventId;
-	// 			if (!eventId) return;
-	// 			const result = await sendEvent({
-	// 				id: eventId,
-	// 				event: "unsave_app",
-	// 				updatedata: "true",
-	// 			});
-	// 			if (result === "error") return;
-	// 			localStorage.setItem(
-	// 				"savedApps",
-	// 				JSON.stringify(savedApps.filter((app) => app.appId !== data?.id)),
-	// 			);
-	// 			setSaved(false);
-	// 		}
-	// 	}
-	// }
-	// useEffect(() => {
-	// 	if (savedApps.some((app) => app.appId === data?.id)) {
-	// 		setSaved(true);
-	// 	}
-	// }, [savedApps, data]);
 
 	const stopApp = async () => {
 		if (installingDeps) {

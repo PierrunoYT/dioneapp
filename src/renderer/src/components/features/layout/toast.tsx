@@ -40,6 +40,10 @@ export const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
 				exit={{ opacity: 0, y: 50 }}
 				transition={{ duration: 0.3, ease: "easeInOut" }}
 				style={{ zIndex: 1000 }}
+				role={variant === "error" || variant === "warning" ? "alert" : "status"}
+				aria-live={
+					variant === "error" || variant === "warning" ? "assertive" : "polite"
+				}
 				ref={ref}
 				className={`pointer-events-auto p-2 flex w-full max-w-md backdrop-blur-3xl backdrop-filter ${button ? "flex-col rounded-xl p-4 px-6 pb-0 gap-2" : "gap-4 rounded-xl justify-between items-center"} ease-in-out ${variantClasses[variant]} ${className} overflow-hidden`}
 				{...(props as any)}
@@ -57,7 +61,8 @@ export const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
 					<button
 						type="button"
 						onClick={onClose}
-						className={`flex  ${button ? "" : "items-center justify-center p-2 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
+						aria-label="Dismiss notification"
+						className={`flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${button ? "" : "items-center justify-center p-2 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
 					>
 						{!button && (
 							<svg
