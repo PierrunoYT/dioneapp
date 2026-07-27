@@ -1,8 +1,19 @@
 export const openLink = (url: string) => {
 	if (url.startsWith("/")) {
 		window.location.href = url;
-	} else {
-		window.electron.ipcRenderer.invoke("open-external-link", url);
+		return;
+	}
+
+	try {
+		const externalUrl = new URL(url);
+		if (externalUrl.protocol === "https:") {
+			window.electron.ipcRenderer.invoke(
+				"open-external-link",
+				externalUrl.toString(),
+			);
+		}
+	} catch {
+		// Ignore malformed external URLs.
 	}
 };
 

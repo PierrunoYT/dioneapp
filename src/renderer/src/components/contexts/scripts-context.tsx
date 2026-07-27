@@ -529,7 +529,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 				});
 
 				if (response.status === 200) {
-					setShow({ [appId]: "actions" });
+					setShow((prev) => ({ ...prev, [appId]: "actions" }));
 					if (!wasJustInstalled) {
 						window.electron.ipcRenderer.invoke(
 							"notify",
@@ -553,8 +553,8 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 				addLogLine(appId, `Error stopping ${appName}: ${error}`);
 			} finally {
 				disconnectApp(appId);
-				setAppFinished({ [appId]: false });
-				setShouldCatch({ [appId]: false });
+				setAppFinished((prev) => ({ ...prev, [appId]: false }));
+				setShouldCatch((prev) => ({ ...prev, [appId]: false }));
 				// setCatchPort({ [appId]: 0 });
 				handleReloadQuickLaunch();
 			}

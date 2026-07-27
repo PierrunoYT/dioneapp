@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { checkDependencies } from "@/server/scripts/dependencies/dependencies";
 import executeInstallation from "@/server/scripts/execute";
 import { checkSystem } from "@/server/scripts/system";
@@ -151,7 +152,7 @@ export function downloadFile(
 				content: "Error detected",
 			});
 			logger.error(`Invalid GitHub URL: ${error.message}`);
-			return;
+			return Promise.resolve();
 		}
 	}
 
@@ -165,12 +166,11 @@ export function downloadFile(
 
 	const file = fs.createWriteStream(FILE_PATH);
 
-	https
-		.get(url, (response) => {
+	return new Promise<void>((resolve, reject) => {
+		const request = https.get(url, async (response) => {
 			if (response.statusCode === 200) {
-				response.pipe(file);
-				file.on("finish", async () => {
-					file.close();
+				try {
+					await pipeline(response, file);
 					io.to(id).emit("installUpdate", {
 						type: "log",
 						content: "Script downloaded successfully.\n",
@@ -180,7 +180,7 @@ export function downloadFile(
 						status: "success",
 						content: "Script downloaded",
 					});
-					// check if system requirements are met
+
 					const systemCheck =
 						force === true
 							? { success: true, reasons: [] }
@@ -198,15 +198,15 @@ export function downloadFile(
 						io.to(id).emit("notSupported", {
 							reasons: systemCheck.reasons,
 						});
+						resolve();
 						return;
-					} else {
-						io.to(id).emit("installUpdate", {
-							type: "log",
-							content: "All system requirements are met.\n",
-						});
 					}
 
-					// download finished, now checking dependencies
+					io.to(id).emit("installUpdate", {
+						type: "log",
+						content: "All system requirements are met.\n",
+					});
+
 					const result = await checkDependencies(FILE_PATH);
 					logger.info(`RESULT: ${JSON.stringify(result)}`);
 					if (result.success) {
@@ -219,12 +219,8 @@ export function downloadFile(
 							status: "success",
 							content: "Dependencies installed",
 						});
-						// checking dependencies finished, now executing installation
-						io.to(id).emit("enableStop"); // this will enable the stop button
-						await executeInstallation(FILE_PATH, io, id).catch((error) => {
-							console.error(`Unhandled error: ${error.message}`);
-							process.exit(1);
-						});
+						io.to(id).emit("enableStop");
+						await executeInstallation(FILE_PATH, io, id);
 					} else if (result.error) {
 						io.to(id).emit("installUpdate", {
 							type: "log",
@@ -249,15 +245,15 @@ export function downloadFile(
 							content: "Installing dependencies...",
 						});
 					}
-				});
-				file.on("error", (error) => {
-					file.close();
-					fs.unlinkSync(FILE_PATH);
-					logger.error(`Error writing file: ${error}`);
-				});
+					resolve();
+				} catch (error) {
+					await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
+					reject(error);
+				}
 			} else {
-				file.close();
-				fs.unlinkSync(FILE_PATH);
+				response.resume();
+				file.destroy();
+				await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
 				logger.error(`Error downloading script: ${response.statusCode}`);
 				io.to(id).emit("installUpdate", {
 					type: "log",
@@ -268,11 +264,13 @@ export function downloadFile(
 					status: "error",
 					content: "Error detected",
 				});
+				resolve();
 			}
-		})
-		.on("error", (error) => {
-			file.close();
-			fs.unlinkSync(FILE_PATH);
+		});
+
+		request.on("error", async (error) => {
+			file.destroy();
+			await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
 			logger.error("Error in request:", error);
 			io.to(id).emit("installUpdate", {
 				type: "log",
@@ -283,5 +281,7 @@ export function downloadFile(
 				status: "error",
 				content: "Error detected",
 			});
+			resolve();
 		});
+	});
 }

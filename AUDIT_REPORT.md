@@ -4,15 +4,15 @@
 
 **Repository:** `pierrunoyt/dioneapp`
 
-**Overall health score:** **24/100 — high risk**
+**Baseline health score:** **24/100 — high risk**
 
 ## Executive summary
 
 This audit covered every tracked file in the repository—approximately 66,961 lines—including the Electron main process and preload, Express and Socket.IO backend, installation and process-management subsystem, renderer, AI/Ollama integration, Supabase routes, build and packaging configuration, CI/CD, scripts, translations, dependencies, and documentation.
 
-The dominant problem is architectural: Dione exposes filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an HTTP/Socket.IO control plane that has no authentication, permissive CORS, and is not explicitly bound to loopback. At the same time, the Electron renderer receives a broad generic IPC bridge, remote webviews receive powerful capabilities, and Chromium sandbox/web-security protections are weakened.
+The dominant problem is architectural: Dione exposes filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an HTTP/Socket.IO control plane that has no authentication and permissive CORS. The server now binds to loopback, reducing network exposure without protecting it from local processes or malicious browser content. At the same time, the Electron renderer receives a broad generic IPC bridge, remote webviews receive powerful capabilities, and Chromium sandbox/web-security protections are weakened.
 
-These weaknesses compound each other. A renderer compromise, malicious local website, reachable LAN client, prompt injection, or compromised script repository may be able to reach native operating-system capabilities.
+These weaknesses compound each other. A renderer compromise, malicious local website, local process, exposed tunnel client, prompt injection, or compromised script repository may be able to reach native operating-system capabilities.
 
 ### Consolidated finding count
 
@@ -26,11 +26,30 @@ These weaknesses compound each other. A renderer compromise, malicious local web
 
 Closely related endpoint- or installer-specific defects are consolidated under shared root causes rather than repeated as separate findings.
 
+## Remediation update — July 27, 2026
+
+The first 10 quick wins were implemented after the baseline audit. Six broader findings are resolved, four are partially remediated, and the release-blocking architectural risks remain open.
+
+| Quick win | Status | Audit impact |
+|---|---|---|
+| Remove duplicate PTY command write | Resolved | H-02 resolved |
+| Await the `end-session` IPC call | Resolved | M-20 resolved |
+| Handle upload-dialog cancellation | Resolved | Renderer crash fixed |
+| Bind the backend to `127.0.0.1` | Implemented; broader risk remains | C-01 partially remediated; authentication and CORS remain open |
+| Remove per-install `process.exit(1)` | Resolved | H-04 resolved |
+| Restrict external OS links to HTTPS | Implemented; broader risk remains | H-22 partially remediated; arbitrary `new-window` loading remains open |
+| Preserve other apps' keyed state when stopping one app | Resolved | H-20 resolved |
+| Preserve replacement dependency cancellation handles | Resolved | H-07 resolved |
+| Acquire the single-instance lock before startup side effects | Resolved | M-02 resolved |
+| Guard the featured carousel's empty/error state | Resolved | M-17 partially remediated; stale feed requests remain open |
+
+The download workflow was also made awaitable through installation completion as part of removing `process.exit(1)`. Some download and validation failure branches still resolve rather than reject, so H-03 remains partially open.
+
 ## Top 10 highest-impact issues
 
 | Rank | Severity | Issue | Effort |
 |---:|---|---|---|
-| 1 | Critical | Unauthenticated network-accessible native control plane | L |
+| 1 | Critical | Unauthenticated native control plane | L |
 | 2 | Critical | Script-name path traversal enables arbitrary writes and deletion | M |
 | 3 | Critical | Generic renderer IPC bridge exposes privileged main-process operations | L |
 | 4 | Critical | Chromium sandbox and Linux web security are disabled | M–L |
@@ -52,18 +71,19 @@ Closely related endpoint- or installer-specific defects are consolidated under s
 - **Files:** `src/main/server/server.ts:13-36`, `src/main/server/routes/setup.ts:16-50`, `src/main/socket/socket.ts:6-24`
 - **Effort:** L
 
-**Description:** Express enables unrestricted `cors()`, mounts all privileged routers without authentication, and calls `listen(port)` without an explicit loopback host. Socket.IO accepts `origin: "*"` and lets clients select arbitrary application rooms.
+**Status:** Partially remediated. The HTTP server now binds to `127.0.0.1`; authentication, CORS, and Socket.IO authorization remain open.
 
-**Why it matters:** Any reachable process, website, LAN client, or tunnel client may access configuration, environment variables, filesystem operations, dependency installation, native script execution, AI tools, process cancellation, and database mutation. Socket clients can subscribe to other applications' output.
+**Description:** Express enables unrestricted `cors()` and mounts all privileged routers without authentication. Socket.IO accepts `origin: "*"` and lets clients select arbitrary application rooms. The explicit loopback bind reduces LAN exposure but does not protect the API from other local processes or malicious browser content.
+
+**Why it matters:** Any local process, malicious website, or tunnel client that can reach the service may access configuration, environment variables, filesystem operations, dependency installation, native script execution, AI tools, process cancellation, and database mutation. Socket clients can subscribe to other applications' output.
 
 **Recommended fix:**
 
-1. Bind to `127.0.0.1`.
-2. Generate a high-entropy token per launch in the main process.
-3. Require it on every HTTP and Socket.IO connection.
-4. Restrict CORS to the exact renderer origin.
-5. Have the server assign authorized rooms.
-6. Treat remote tunnel exposure as a separate authenticated API.
+1. Generate a high-entropy token per launch in the main process.
+2. Require it on every HTTP and Socket.IO connection.
+3. Restrict CORS to the exact renderer origin.
+4. Have the server assign authorized rooms.
+5. Treat remote tunnel exposure as a separate authenticated API.
 
 ```ts
 app.use(cors({ origin: trustedRendererOrigin }));
@@ -276,6 +296,7 @@ await supabase
 
 ## H-02 — Every PTY command is written twice
 
+- **Status:** Resolved on July 27, 2026. Each command is now written once.
 - **Category:** Logic, process execution
 - **File:** `src/main/server/scripts/process.ts:218-238`
 - **Description:** Two consecutive blocks write the same command to the PTY.
@@ -283,17 +304,19 @@ await supabase
 - **Fix:** Delete the duplicate block and add an exactly-once execution test.
 - **Effort:** S
 
-## H-03 — Download workflow is not awaitable
+## H-03 — Download failure outcomes can still be reported as success
 
+- **Status:** Partially remediated on July 27, 2026. The workflow now returns a Promise through installation completion, but several HTTP/file/system/dependency failure branches resolve rather than reject.
 - **Category:** Async race, error handling
 - **File:** `src/main/server/scripts/download.ts:113-286`
-- **Description:** `downloadFile()` starts callback-based asynchronous work but returns `void`.
-- **Why it matters:** Routes report success before download, validation, dependency installation, or application installation finishes.
-- **Fix:** Return a Promise covering request, stream, atomic rename, validation, and installation. Reject on every failure.
+- **Description:** `downloadFile()` is now awaitable, but non-200 responses, request/file errors, unsupported systems, and malformed dependency outcomes can still resolve the Promise after emitting an error event.
+- **Why it matters:** The HTTP route can return success despite a failed download or validation outcome, allowing renderer state to diverge from installation state.
+- **Fix:** Reject or return a structured failure for every unsuccessful terminal branch; use atomic temporary-file writes and return success only after installation completes.
 - **Effort:** M
 
 ## H-04 — Installation failure can terminate the entire Electron app
 
+- **Status:** Resolved on July 27, 2026. Per-install failures no longer terminate Electron; complete failure propagation remains tracked under H-03.
 - **Category:** Availability, error handling
 - **File:** `src/main/server/scripts/download.ts:217-227`
 - **Description:** A per-install failure invokes `process.exit(1)`.
@@ -321,6 +344,7 @@ await supabase
 
 ## H-07 — Dependency replacement race loses cancellation handles
 
+- **Status:** Resolved on July 27, 2026. Cleanup now verifies controller identity before deleting the map entry.
 - **Category:** Concurrency
 - **File:** `src/main/server/routes/dependencies.ts:39-80`
 - **Description:** An old request's `finally` unconditionally deletes the map entry by ID after a replacement controller has been installed.
@@ -444,6 +468,7 @@ if (activeInstallations.get(id) === controller) {
 
 ## H-20 — Stopping one app erases other apps' state
 
+- **Status:** Resolved on July 27, 2026. Keyed state updates now merge with prior state.
 - **Category:** Logic, multi-app state
 - **File:** `src/renderer/src/components/contexts/scripts-context.tsx:524-560`
 - **Description:** State setters replace whole keyed objects with a single app entry.
@@ -462,11 +487,12 @@ if (activeInstallations.get(id) === controller) {
 
 ## H-22 — External URL schemes and arbitrary windows are accepted
 
+- **Status:** Partially remediated on July 27, 2026. Renderer and main-process OS link flows now permit HTTPS only; the separate renderer-controlled `new-window` IPC still requires an origin allowlist.
 - **Category:** Electron/OS integration
 - **Files:** `src/renderer/src/utils/open-link.ts:1-10`, `src/main/index.ts:895-903,1290-1314`
-- **Description:** Renderer-controlled strings reach `shell.openExternal()` and new `BrowserWindow` navigation without strict protocol/host validation.
-- **Why it matters:** `file:`, custom protocol handlers, credential-bearing URLs, and attacker-controlled remote content may reach OS handlers or Electron windows.
-- **Fix:** Permit only explicit HTTPS origins and narrowly justified schemes in both renderer and main process.
+- **Description:** OS external-link paths now reject malformed and non-HTTPS URLs. However, the renderer can still request a new Electron window for an arbitrary URL without an explicit host allowlist.
+- **Why it matters:** Attacker-controlled remote content may still be loaded into an Electron window, even though dangerous OS protocol handlers are no longer reached through the corrected link flows.
+- **Fix:** Allowlist exact HTTPS origins for every secondary-window flow and configure those windows with explicit sandboxed `webPreferences`.
 - **Effort:** S–M
 
 ## H-23 — Runtime dependency vulnerabilities
@@ -491,8 +517,8 @@ if (activeInstallations.get(id) === controller) {
 | ID | Category and files | Description and impact | Recommended fix | Effort |
 |---|---|---|---|---|
 | M-01 | Lifecycle — `src/main/index.ts:717-737,1213-1225` | `Promise.race([await cleanup(), timeout])` awaits cleanup before racing, making timeouts ineffective. A failed Ollama stop can skip later cleanup. | Race an unawaited `Promise.allSettled(...)` against a timer; centralize idempotent shutdown. | M |
-| M-02 | Startup — `src/main/index.ts:424-427,596-620` | The single-instance lock is acquired after tray, Discord, and backend startup. A losing instance creates transient resources. | Acquire the lock before all side effects. | S |
-| M-03 | Server startup — `src/main/server/server.ts:18-35`, `utils/get-port.ts` | Port discovery has a release-before-bind race and `listen()` errors may not reject startup. | Listen on port `0`, add an `error` rejection handler, then read the assigned port. | S |
+| M-02 | **Resolved July 27, 2026.** Startup — `src/main/index.ts` | The single-instance lock is now acquired before protocol registration, tray, Discord, backend, and window startup. | No further action for this finding. | — |
+| M-03 | Server startup — `src/main/server/server.ts:18-35`, `utils/get-port.ts` | The server now binds to loopback, but port discovery still has a release-before-bind race and `listen()` errors may not reject startup. | Listen on port `0`, add an `error` rejection handler, then read the assigned port. | S |
 | M-04 | Configuration — `src/main/config.ts:68-183`, `routes/config.ts:14-63` | Arbitrary fields and weakly validated paths are merged, logged, and written non-atomically. | Strict schema, approved root paths, secret redaction, temporary file + fsync + rename. | M |
 | M-05 | Environment API — `src/main/server/routes/variables.ts:9-55` | Generic GET/POST/DELETE may disclose or modify process/system environment data. | Remove the generic API; expose only allowlisted non-secret settings. | M |
 | M-06 | Tunneling — `src/main/index.ts:1077-1119`, `src/main/utils/tunnel.ts:23-115` | The renderer selects an arbitrary local port; credentials are logged; lifecycle calls race and old close handlers can clear new state. | Tunnel only the known backend port, serialize lifecycle, and avoid logging credentials. | M |
@@ -506,10 +532,10 @@ if (activeInstallations.get(id) === controller) {
 | M-14 | Synchronous scanning — `src/main/server/scripts/update.ts:8-76` | Recursive synchronous scans block Electron's event loop without depth or entry budgets. | Async iterative traversal with limits and cancellation. | M |
 | M-15 | Workspace editor — `workspace-editor.tsx:124-480` | Out-of-order reads can overwrite newer file/tree state and potentially save under stale selection. | Request generations or `AbortController`; verify identity before committing. | M |
 | M-16 | AI renderer state — `ai-context.tsx:152-210` | Concurrent prompts use stale message snapshots and one loading boolean. | Serialize or key requests; use current-message refs and a pending counter. | M |
-| M-17 | Feed/carousel — `feed.tsx:34-145`, `featured-carrousel.tsx:51-85` | Old requests can overwrite new results, and empty carousel results are dereferenced and crash. | Abort stale requests and add explicit empty/error states. | S–M |
+| M-17 | **Partially remediated July 27, 2026.** Feed/carousel — `feed.tsx:34-145`, `featured-carrousel.tsx` | The carousel now renders an empty/error state safely. Old feed requests can still overwrite newer results. | Abort stale requests and ignore obsolete request generations. | M |
 | M-18 | Local storage — `App.tsx`, scripts context, sidebar, library, sound, error page | Multiple unguarded `JSON.parse` calls can crash startup or major UI sections. | Central schema-validating parser with defaults and invalid-value removal. | M |
 | M-19 | Settings races — `pages/settings.tsx:89-222` | Full-object writes can resolve out of order; reset clears all local storage before server confirmation. | Field-level PATCH/versioning; clear only owned keys after confirmed success. | M |
-| M-20 | IPC mismatch — `pages/settings.tsx:188-197`, `src/main/index.ts:1040-1046` | The renderer sends `end-session`, while main registers `ipcMain.handle`, so settings reset does not end the session. | Use a typed preload method backed by `invoke`. | S |
+| M-20 | **Resolved July 27, 2026.** IPC mismatch — `pages/settings.tsx`, `src/main/index.ts` | Settings reset now awaits `ipcRenderer.invoke("end-session")` before navigation. | Migrate the remaining generic IPC call to a typed preload method during C-03 remediation. | — |
 | M-21 | Translation schema — all locale files and `translation-context.tsx:95-132` | Every non-English locale is missing English keys; missing values display raw dotted keys because no English fallback exists. | Type locales against `typeof en`, add CI key-set validation, and fall back to English. | M |
 | M-22 | Build secrets — `electron.vite.config.ts:12-32`, `.env.example`, build workflow | Supabase, webhook, and service values are compiled into distributed JavaScript. | Treat client values as public; use a Supabase anonymous key with RLS and move privileged operations server-side. | L |
 
@@ -706,23 +732,23 @@ The repository has no configured automated test framework, no `test` script, and
 
 ---
 
-# Quick wins under one hour
+# Quick-win status — top 10 completed July 27, 2026
 
-1. Remove the duplicate PTY write.
-2. Change the settings `end-session` call from `send` to `invoke`.
-3. Guard upload-dialog cancellation before using `filePaths[0]`.
-4. Bind the Express server explicitly to `127.0.0.1`.
-5. Remove `process.exit(1)` from per-install failure.
-6. Validate external links as HTTPS-only.
-7. Fix per-app state setters to merge rather than replace.
-8. Delete a dependency controller only if it is still the active controller.
-9. Acquire the single-instance lock before backend/tray initialization.
-10. Add an empty-state guard to the featured carousel.
-11. Remove command-line Gemini secrets from CI.
-12. Align `.editorconfig` and Biome indentation.
-13. Update README commands from pnpm to npm.
-14. Add `response.ok` checks to critical install/start/uninstall calls.
-15. Stop logging tunnel passwords and full AI prompt/response content.
+1. [x] Remove the duplicate PTY write.
+2. [x] Change the settings `end-session` call from `send` to `invoke`.
+3. [x] Guard upload-dialog cancellation before using `filePaths[0]`.
+4. [x] Bind the Express server explicitly to `127.0.0.1`.
+5. [x] Remove `process.exit(1)` from per-install failure.
+6. [x] Validate external links as HTTPS-only.
+7. [x] Fix per-app state setters to merge rather than replace.
+8. [x] Delete a dependency controller only if it is still the active controller.
+9. [x] Acquire the single-instance lock before backend/tray initialization.
+10. [x] Add an empty-state guard to the featured carousel.
+11. [ ] Remove command-line Gemini secrets from CI.
+12. [ ] Align `.editorconfig` and Biome indentation.
+13. [ ] Update README commands from pnpm to npm.
+14. [ ] Add `response.ok` checks to critical install/start/uninstall calls.
+15. [ ] Stop logging tunnel passwords and full AI prompt/response content.
 
 ---
 
@@ -731,8 +757,10 @@ The repository has no configured automated test framework, no `test` script, and
 - The repository was fully inventoried, and subsystem reviews covered all tracked source and configuration files.
 - Translation files were structurally compared against the English schema.
 - Dependency findings were evaluated from `package-lock.json` and `npm audit`.
-- No application source files were modified as part of the audit.
-- `npm run typecheck` could not run in the audit orb because dependencies were not installed (`tsc: not found`).
+- The baseline audit was read-only. The subsequent top-10 quick-win remediation modified the files identified in the remediation table.
+- `npm run typecheck` passed for both main and renderer after installing the locked dependencies with lifecycle scripts disabled.
+- `npm run build` passed, including main, preload, and renderer production bundles.
+- Targeted Biome formatting completed successfully. Targeted linting still reports pre-existing diagnostics in large touched files; those unrelated diagnostics were not suppressed or broadened into this remediation.
 - No test suite exists.
 - Dynamic security tests were not run because they would require executing downloaded installers, scripts, or destructive filesystem/process operations.
 - Binary assets were inventoried but are not behaviorally auditable like source code.

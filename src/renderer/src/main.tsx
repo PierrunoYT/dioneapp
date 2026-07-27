@@ -25,3 +25,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 		</TranslationProvider>
 	</HashRouter>,
 );
+
+requestAnimationFrame(() => {
+	window.electron.ipcRenderer.send("renderer-ready");
+});

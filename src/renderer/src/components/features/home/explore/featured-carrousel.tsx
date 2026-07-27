@@ -1,5 +1,6 @@
 // import { useAuthContext } from "@/components/contexts/auth-context";
 import type { Script } from "@/components/features/home/feed/types";
+import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { FeedCache } from "@/utils/cache";
 // import sendEvent from "@/utils/events";
@@ -9,9 +10,10 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function FeaturedCarousel() {
+	const { t } = useTranslation();
 	const [scripts, setScripts] = useState<Script[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [_error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
 	const [gradients, setGradients] = useState<Record<string, string>>({});
 	const [currentIndex, setCurrentIndex] = useState<number>(0);
 	const [isUsingCache, setIsUsingCache] = useState(false);
@@ -136,8 +138,16 @@ export default function FeaturedCarousel() {
 	};
 
 	if (loading) return <CarrouselSkeleton />;
+	if (slides.length === 0) {
+		return (
+			<div className="h-70 flex items-center justify-center text-center text-neutral-500 text-sm">
+				{error ? t("feedErrors.failedToFetchScripts") : t("feed.noScripts")}
+			</div>
+		);
+	}
 
-	const activeItem = slides[currentIndex] as any;
+	const activeIndex = currentIndex % slides.length;
+	const activeItem = slides[activeIndex] as any;
 
 	const handlePromoClick = async (id: string) => {
 		if (!isOnline) {
@@ -313,10 +323,11 @@ export default function FeaturedCarousel() {
 											e.preventDefault();
 											handleDotClick(index);
 										}}
-										className={`w-2 h-2 rounded-xl transition-all duration-300 ${index === currentIndex
-											? "bg-white w-6"
-											: "bg-white/50 hover:bg-white/70"
-											}`}
+										className={`w-2 h-2 rounded-xl transition-all duration-300 ${
+											index === activeIndex
+												? "bg-white w-6"
+												: "bg-white/50 hover:bg-white/70"
+										}`}
 									/>
 								))}
 							</div>
@@ -353,8 +364,9 @@ export function CarrouselSkeleton() {
 								{[...Array(5)].map((_, index) => (
 									<div
 										key={index}
-										className={`h-2 rounded-xl bg-gray-200/30 animate-pulse ${index === 0 ? "w-6" : "w-2"
-											}`}
+										className={`h-2 rounded-xl bg-gray-200/30 animate-pulse ${
+											index === 0 ? "w-6" : "w-2"
+										}`}
 									/>
 								))}
 							</div>

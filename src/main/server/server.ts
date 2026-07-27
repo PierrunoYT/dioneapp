@@ -23,7 +23,7 @@ export const start = async (): Promise<number> => {
 		setupRoutes(app, io);
 
 		return new Promise((resolve) => {
-			localServer.listen(port, () => {
+			localServer.listen(port, "127.0.0.1", () => {
 				logger.info(`Backend server started on http://localhost:${port}`);
 				httpServer = localServer;
 				resolve(port);

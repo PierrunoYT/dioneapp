@@ -107,7 +107,7 @@ export default function Settings() {
 			if (
 				updatedConfig.enableDesktopNotifications === true &&
 				updatedConfig.enableDesktopNotifications !==
-				config.enableDesktopNotifications
+					config.enableDesktopNotifications
 			) {
 				const xml = `
 				<toast launch="dione://action=navigate&amp;contentId=351" activationType="protocol">
@@ -193,7 +193,7 @@ export default function Settings() {
 		await window.electron.ipcRenderer.invoke("check-first-launch");
 		// await logout();
 		// terminate session
-		window.electron.ipcRenderer.send("end-session");
+		await window.electron.ipcRenderer.invoke("end-session");
 		navigate("/first-time");
 	}
 

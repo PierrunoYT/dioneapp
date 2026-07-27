@@ -76,7 +76,9 @@ export const createDependenciesRouter = (io: Server) => {
 				res.status(500).json({ error: "Installation failed" });
 			}
 		} finally {
-			activeInstallations.delete(id);
+			if (activeInstallations.get(id) === controller) {
+				activeInstallations.delete(id);
+			}
 		}
 	});
 

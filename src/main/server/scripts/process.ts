@@ -231,12 +231,6 @@ export const executeCommand = async (
 			ptyProcess.write(`${command}; exit $?\n`);
 		}
 
-		if (isWindows) {
-			ptyProcess.write(`@echo off\r\n${command}\r\nexit %ERRORLEVEL%\r\n`);
-		} else {
-			ptyProcess.write(`${command}; exit $?\n`);
-		}
-
 		logger.info(
 			`Executing: ${command.length > 300 ? command.substring(0, 300) + "..." : command}`,
 		);

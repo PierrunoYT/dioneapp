@@ -21,6 +21,8 @@ export default function UploadModal({ onClose }: { onClose: () => void }) {
 
 	const handleFileUpload = () => {
 		window.electron.ipcRenderer.invoke("select-file", "").then((result) => {
+			if (result.canceled || !result.filePaths?.[0]) return;
+
 			const fullPath = result.filePaths[0];
 			setScriptFile(fullPath);
 

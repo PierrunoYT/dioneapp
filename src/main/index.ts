@@ -53,8 +53,16 @@ import { resizeTerminal } from "./server/scripts/process";
 
 dotenvConfig();
 
+// Acquire the lock before registering protocols or starting application services.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+	app.quit();
+}
+
 // remove so we can register each time as we run the app.
-app.removeAsDefaultProtocolClient("dione");
+if (gotSingleInstanceLock) {
+	app.removeAsDefaultProtocolClient("dione");
+}
 
 // get icon path based on platform
 function getIconPath(platform: string): string {
@@ -91,7 +99,11 @@ function getIconPath(platform: string): string {
 }
 
 // If we are running a non-packaged version of the app && on windows
-if (process.env.NODE_ENV === "development" && process.platform === "win32") {
+if (
+	gotSingleInstanceLock &&
+	process.env.NODE_ENV === "development" &&
+	process.platform === "win32"
+) {
 	// set the path of the app on node_modules/electron/electron.exe
 	if (process.argv.length >= 2) {
 		app.setAsDefaultProtocolClient("dione", process.execPath, [
@@ -100,7 +112,7 @@ if (process.env.NODE_ENV === "development" && process.platform === "win32") {
 	} else {
 		app.setAsDefaultProtocolClient("dione");
 	}
-} else {
+} else if (gotSingleInstanceLock) {
 	app.setAsDefaultProtocolClient("dione");
 }
 
@@ -108,6 +120,61 @@ if (process.env.NODE_ENV === "development" && process.platform === "win32") {
 let mainWindow: BrowserWindow;
 let port: number;
 let sessionId: string;
+const pendingDeepLinks: string[] = [];
+let dispatchDeepLink: ((url: string | undefined) => void) | undefined;
+let rendererReadyForDeepLinks = false;
+
+const dispatchOrQueueDeepLink = (url: string | undefined) => {
+	if (!url) return;
+	if (dispatchDeepLink && rendererReadyForDeepLinks) {
+		dispatchDeepLink(url);
+		return;
+	}
+	pendingDeepLinks.push(url);
+};
+
+if (gotSingleInstanceLock) {
+	app.on("second-instance", (_event, commandLine) => {
+		if (mainWindow) {
+			if (mainWindow.isMinimized()) mainWindow.restore();
+			mainWindow.focus();
+		}
+
+		const deepLink = commandLine
+			.find((argument) => argument.startsWith("dione://"))
+			?.replace(/\/$/, "");
+		dispatchOrQueueDeepLink(deepLink);
+	});
+
+	app.on("open-url", (event, url) => {
+		event.preventDefault();
+		dispatchOrQueueDeepLink(url);
+	});
+
+	ipcMain.on("renderer-ready", (event) => {
+		if (!mainWindow || event.sender !== mainWindow.webContents) return;
+		rendererReadyForDeepLinks = true;
+		for (const deepLink of pendingDeepLinks.splice(0)) {
+			dispatchDeepLink?.(deepLink);
+		}
+	});
+}
+
+const openHttpsExternal = (value: unknown): boolean => {
+	if (typeof value !== "string") return false;
+
+	try {
+		const url = new URL(value);
+		if (url.protocol !== "https:") return false;
+		void shell.openExternal(url.toString()).catch((error) => {
+			logger.warn("Failed to open external URL:", error);
+		});
+		return true;
+	} catch (error) {
+		logger.warn("Rejected malformed external URL:", error);
+		return false;
+	}
+};
 
 const updateBackendPortState = (
 	nextPort: number,
@@ -125,7 +192,7 @@ const buildWindowOpenHandler = (
 	details: Electron.HandlerDetails,
 ) => Electron.WindowOpenHandlerResponse) => {
 	return (details: Electron.HandlerDetails) => {
-		shell.openExternal(details.url);
+		openHttpsExternal(details.url);
 		return { action: "deny" };
 	};
 };
@@ -247,10 +314,10 @@ function createWindow() {
 				sandbox: false,
 				...(process.platform === "linux"
 					? {
-						enableRemoteModule: false,
-						webSecurity: false,
-						allowRunningInsecureContent: true,
-					}
+							enableRemoteModule: false,
+							webSecurity: false,
+							allowRunningInsecureContent: true,
+						}
 					: {}),
 			},
 		});
@@ -374,11 +441,7 @@ function createWindow() {
 			logger.error("Error handling deep link:", error);
 		}
 	};
-
-	app.on("open-url", (event, url) => {
-		event.preventDefault();
-		handleDeepLink(url);
-	});
+	dispatchDeepLink = handleDeepLink;
 
 	app.on("web-contents-created", (_e, contents) => {
 		if (contents.getType() === "webview") {
@@ -403,7 +466,7 @@ function createWindow() {
 	mainWindow.webContents.on("will-navigate", (event, url) => {
 		if (url !== mainWindow.webContents.getURL()) {
 			event.preventDefault();
-			shell.openExternal(url);
+			openHttpsExternal(url);
 		}
 	});
 
@@ -420,21 +483,6 @@ function createWindow() {
 		if (!mainWindow || mainWindow.isDestroyed()) return;
 		mainWindow.webContents.send("app:fullscreen-changed", false);
 	});
-
-	const gotTheLock = app.requestSingleInstanceLock();
-	if (!gotTheLock) {
-		app.quit();
-		process.exit(0);
-	} else {
-		app.on("second-instance", (_event, commandLine) => {
-			if (mainWindow) {
-				if (mainWindow.isMinimized()) mainWindow.restore();
-				mainWindow.focus();
-			}
-
-			handleDeepLink(commandLine.pop()?.replace(/\/$/, ""));
-		});
-	}
 
 	// Load renderer content (URL in development, HTML file in production)
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
@@ -462,6 +510,8 @@ function createWindow() {
 
 // Sets up the application when ready.
 app.whenReady().then(async () => {
+	if (!gotSingleInstanceLock) return;
+
 	logger.info("Starting app...");
 	configurePermissionHandlers();
 
@@ -899,7 +949,7 @@ app.whenReady().then(async () => {
 
 	// Open external links
 	ipcMain.handle("open-external-link", (_event, url) => {
-		shell.openExternal(url);
+		return openHttpsExternal(url);
 	});
 
 	ipcMain.handle("check-update", () => {
@@ -983,7 +1033,8 @@ app.whenReady().then(async () => {
 				} else {
 					const bodyText = await response.text();
 					logger.warn(
-						`/db/events returned non-JSON (${contentType || "unknown"
+						`/db/events returned non-JSON (${
+							contentType || "unknown"
 						}). Body: ${bodyText.slice(0, 200)}`,
 					);
 					data = { raw: bodyText };
@@ -1414,7 +1465,7 @@ ipcMain.handle("delete-folder", async (_event, folderPath) => {
 	) {
 		folderPath = path.join(
 			config?.defaultBinFolder ||
-			path.join(config?.defaultInstallFolder, "bin"),
+				path.join(config?.defaultInstallFolder, "bin"),
 			"cache",
 		);
 	} else {
