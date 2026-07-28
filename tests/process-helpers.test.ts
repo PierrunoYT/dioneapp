@@ -45,7 +45,10 @@ test("working-directory resolution returns canonical contained directories", asy
 	const root = await temporaryDirectory("dione-process-root-");
 	const nested = path.join(root, "nested");
 	await fs.promises.mkdir(nested);
-	assert.equal(await resolveContainedWorkingDirectory(root, "nested"), nested);
+	assert.equal(
+		await resolveContainedWorkingDirectory(root, "nested"),
+		await fs.promises.realpath(nested),
+	);
 });
 
 test("working-directory resolution rejects traversal and symlink escapes", async () => {
