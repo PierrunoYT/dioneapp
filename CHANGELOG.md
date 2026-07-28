@@ -29,6 +29,23 @@ Regressions introduced by the July 28 hardening pass, found while running the ap
   code blocks, and editor paths would have failed once the preload loaded. Clipboard
   writes now go through a sender-checked `clipboard:write-text` IPC handler in the main
   process. `copyText()` returns `Promise<void>` instead of `void`.
+- **One invalid stored path discarded every other setting.** `readConfig()` validated the
+  whole configuration file in a single `try`/`catch`, so a value rejected by the M-04 path
+  rules — most often a `defaultInstallFolder` pointing at a drive root, which earlier
+  releases allowed — made the entire file unreadable and silently fell back to
+  `defaultConfig`. Theme, language, layout mode, compact mode, and update preferences were
+  all lost as collateral damage, with only a repeated log line to explain it. Stored
+  configuration is now recovered field by field: invalid values are dropped individually,
+  named in a single warning, replaced with their defaults, and persisted so the file
+  self-heals on the next launch. Runtime patches from the renderer still use the strict
+  parser and are rejected outright rather than partially applied.
+- **Every configuration write failed on Windows.** `writeConfig()` fsynced the containing
+  directory after the atomic rename, which Windows rejects with `EPERM` on a directory
+  handle. The error escaped after the rename had already succeeded, so the write landed on
+  disk but the caller saw a failure — `readConfig()` then discarded the freshly repaired
+  configuration and returned defaults anyway. The directory flush is now best effort and
+  tolerates `EPERM`, `EINVAL`, and `ENOSYS`; the file fsync and atomic rename still prevent
+  a torn or partial configuration.
 
 ### Security
 
@@ -192,10 +209,13 @@ Carried over from the audit; none are regressions:
 ### Upgrade notes
 
 The M-04 configuration hardening rejects filesystem roots for `defaultInstallFolder`,
-`defaultBinFolder`, and `defaultLogsPath`. Existing configs pointing at a bare drive root
-(for example `D:\`) now log `Unsafe filesystem root for configuration field: …` on every
-read and silently fall back to the defaults under the user-data directory. Point these at a
-subdirectory (`D:\Dione`) instead — the in-app picker will reject the root as well.
+`defaultBinFolder`, and `defaultLogsPath`. A config pointing at a bare drive root (for
+example `D:\`) logs `Unsafe filesystem root for configuration field: …`; that field is
+discarded, reset to the user-data directory, and the repaired file is written back, so the
+warning appears once rather than on every read. Other settings are unaffected. If you had
+apps installing to a drive root, repoint the setting at a subdirectory (`D:\Dione`) — the
+in-app picker rejects the root as well — and move any existing `apps` and `bin`
+directories, since the app appends those names to whatever parent you choose.
 
 ## [1.1.3]
 

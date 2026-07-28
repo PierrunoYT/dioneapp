@@ -179,6 +179,31 @@ export function parseConfigPatch(value: unknown): AppConfigPatch {
 	}
 	return patch as AppConfigPatch;
 }
+// Stored configuration is recovered field by field so that a single invalid value—for
+// example an install folder that predates the filesystem-root restriction—cannot discard
+// every other setting. Runtime patches keep using the strict parser above, because a
+// renderer-supplied value must be rejected rather than silently ignored.
+function parseStoredConfig(storedValue: Record<string, unknown>): AppConfigPatch {
+	const recovered: Record<string, unknown> = {};
+	const rejected: string[] = [];
+
+	for (const [key, fieldValue] of Object.entries(storedValue)) {
+		if (!CONFIG_KEYS.has(key as keyof AppConfig)) continue;
+		try {
+			Object.assign(recovered, parseConfigPatch({ [key]: fieldValue }));
+		} catch {
+			rejected.push(key);
+		}
+	}
+
+	if (rejected.length > 0) {
+		logger.warn(
+			`Discarding invalid stored configuration field(s): ${rejected.join(", ")}. Defaults will be used and persisted.`,
+		);
+	}
+
+	return recovered as AppConfigPatch;
+}
 // generate codename
 function shortHash(value: string) {
 	return crypto
@@ -232,13 +257,7 @@ export const readConfig = (): AppConfig => {
 		) as Record<string, unknown>;
 		// Ignore obsolete fields in files written by older releases, while still
 		// applying the same type/path validation used for runtime patches.
-		const storedConfig = parseConfigPatch(
-			Object.fromEntries(
-				Object.entries(storedValue).filter(([key]) =>
-					CONFIG_KEYS.has(key as keyof AppConfig),
-				),
-			),
-		);
+		const storedConfig = parseStoredConfig(storedValue);
 
 		const mergedConfig: AppConfig = {
 			...defaultConfig,
@@ -278,11 +297,20 @@ export const writeConfig = (config: AppConfig) => {
 		fs.closeSync(fd);
 		fd = undefined;
 		fs.renameSync(temporaryPath, configPath);
-		const directoryFd = fs.openSync(path.dirname(configPath), "r");
+		// Flushing the directory entry is a POSIX durability guarantee. Windows rejects
+		// fsync on a directory handle with EPERM, and some filesystems answer EINVAL or
+		// ENOSYS, so it is best effort: the file fsync and atomic rename above already
+		// prevent a torn or partial configuration.
 		try {
-			fs.fsyncSync(directoryFd);
-		} finally {
-			fs.closeSync(directoryFd);
+			const directoryFd = fs.openSync(path.dirname(configPath), "r");
+			try {
+				fs.fsyncSync(directoryFd);
+			} finally {
+				fs.closeSync(directoryFd);
+			}
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "EPERM" && code !== "EINVAL" && code !== "ENOSYS") throw error;
 		}
 	} finally {
 		if (fd !== undefined) fs.closeSync(fd);
