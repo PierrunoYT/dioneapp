@@ -96,7 +96,7 @@ The **24/100 health score remains the historical audit baseline**; it has not be
 
 ## Critical-severity remediation update — July 28, 2026
 
-The code-level remediation for C-01 through C-08 is complete. All critical exploit classes identified by the baseline audit now fail closed. This is not a general security certification: high-severity findings and defense-in-depth work remain, and publisher deployment must provide a valid trust store plus signed catalog metadata before remote installation works.
+The code-level remediation for C-01 through C-08 is complete. All critical exploit classes identified by the baseline audit now fail closed. This is not a general security certification: defense-in-depth work and deployment prerequisites remain, and publisher deployment must provide a valid trust store plus signed catalog metadata before remote installation works.
 
 | Finding | Status | Remediation |
 |---|---|---|
@@ -118,7 +118,49 @@ The code-level remediation for C-01 through C-08 is complete. All critical explo
 - Focused Ed25519 trust test covering valid signed load, tamper rejection, local hash-bound approval, and nonce replay rejection
 - Static negative searches for generic IPC/webview/no-sandbox patterns, renderer bearer-token exposure, unsigned command replacement, and removed database mutation routes
 
-The **24/100 score remains the historical baseline**. It should be recalculated only after the remaining high-severity findings and deployment-side trust/RLS prerequisites are independently verified.
+The **24/100 score remains the historical baseline**. It should be recalculated only after deployment-side trust/RLS prerequisites and the remaining conditional High findings are independently verified.
+
+## High-severity remediation update — July 28, 2026
+
+The four parallel High-remediation tracks were integrated on `main` as commits `f8dc3a9`, `7d8f38d`, `790bf81`, and `309e8e0`. H-01 through H-23 are resolved at the code boundary except H-12, which is intentionally partial because unverifiable platform artifacts were disabled, and H-23, which retains two duplicate upstream React Router advisories without a published fixed forward release. This table is authoritative; the detailed High sections below remain as baseline evidence.
+
+| Finding | Status | Remediation |
+|---|---|---|
+| H-01 | Resolved with C-01/C-08 | Removed renderer-supplied replacement commands; native execution now consumes exact trusted manifest commands through authenticated, closed operations. |
+| H-02 | Previously resolved | Removed duplicate PTY command writes and preserved exactly-once dispatch. |
+| H-03 | Resolved | Remote/local download, installation, cancellation, unsupported-system, malformed-dependency, and start failures now propagate as structured failures; routes report success only after successful completion. |
+| H-04 | Previously resolved | Per-install failures propagate without terminating Electron. |
+| H-05 | Resolved | Replaced module-global cancellation with app/operation-scoped `AbortController` ownership. |
+| H-06 | Resolved with residual | Owned PTYs, direct children, Ollama, and discoverable descendants use graceful stop, bounded wait, escalation, and shutdown cleanup. A deliberately daemonized child that reparents before any stop request cannot be rediscovered without OS job/process-group ownership. |
+| H-07 | Previously resolved | Replacement cancellation-map cleanup remains identity checked. |
+| H-08 | Resolved | Captured output is bounded to 1 MiB, socket output uses a bounded/rate-limited 64 KiB queue, and commands have signed-manifest-bounded deadlines. |
+| H-09 | Resolved | Removed shell-text `cd` parsing; structured working directories are canonicalized and contained beneath the application root. |
+| H-10 | Resolved | Environment names/types/Python versions and paths are validated; uv and Conda use direct executable argument arrays, with one platform shell retained only for publisher-signed command bodies. |
+| H-11 | Resolved | Removed process-global filesystem monkey-patching; uninstall deletions are explicit and awaited. |
+| H-12 | **Partially resolved, fail closed** | Enabled installer paths use immutable metadata, exact host/redirect policies, size limits, private staging, SHA-256 before promotion, and exact-signer Authenticode where appropriate. Unverifiable FFmpeg paths, Node Linux/macOS bundles, Ollama Linux/macOS bundles, and CUDA Linux are disabled rather than assigned invented trust metadata. |
+| H-13 | Resolved for enabled archive paths | Verified archives are preflighted for traversal, links/reparse/special entries, malformed ZIP structures, duplicates, sparse metadata, encryption, overlap, member/expanded-size limits, and compression bombs; extraction is shell-free into private staging with postflight validation. |
+| H-14 | Resolved | Dependency installers use direct executable/argument-array invocation without `shell: true`; ad hoc installer HTTP clients were replaced by the verified-artifact path. |
+| H-15 | Resolved with C-04 | Preview content is loopback-restricted and isolated in hardened, sandboxed web content without preload capabilities, mixed-content allowance, or automatic media permissions. |
+| H-16 | Resolved | Preview polling is keyed, guarded before its first await, abortable, deadline-bound, generation-owned, and cleaned on disconnect/unmount. |
+| H-17 | Resolved | Critical renderer mutations pass through a typed throwing non-2xx boundary before success-state changes. |
+| H-18 | Resolved | Failed uninstall/deletion returns before local state removal and refreshes authoritative installed, quick-launch, and library state. |
+| H-19 | Resolved | Script sockets disable automatic reconnection, use generation/identity ownership, dispose listeners/timers/manager state explicitly, and read current keyed state. IPC backend calls do not yet forward `RequestInit.signal`; generation ownership discards stale workspace results. |
+| H-20 | Previously resolved | Keyed app-state updates merge rather than replacing unrelated applications' state. |
+| H-21 | Resolved | Reports require a server-generated sanitized preview and explicit per-send consent; safe-field allowlists, recursive secret/path redaction, depth/count/size caps, and backend re-sanitization are enforced. Stable machine IDs were removed, and debug export is a private bounded text report rather than a broad ZIP. |
+| H-22 | Resolved with C-03/C-04 | External navigation is HTTPS-only, preview URLs are loopback validated, and secondary content is sandboxed without a generic renderer-controlled window capability. |
+| H-23 | **Conditionally resolved** | Production advisories fell from 28 (1 critical, 14 high, 9 moderate, 4 low) to 2 high entries, both the same React Router RSC/server-action CSRF advisory. Dione uses CSR `HashRouter`, not the affected RSC path. npm names nonexistent 8.3.0 as the forward fix; latest 7.18.1 remains flagged, so no safe published forward fix currently exists. |
+
+### Combined High-remediation verification
+
+- `npm run typecheck`
+- Biome checks on every track's changed source files
+- `npm run check-licenses`
+- `npm run check-installer-security`, including deterministic SHA mismatch and malicious tar/ZIP fixtures
+- `npm run build` after every rebase; Electron 41 unpack and native-module packaging also passed in the dependency track
+- `npm audit --omit=dev`: 0 critical, 2 high, 0 moderate, 0 low
+- Live cross-checks of 25 GitHub artifact digests, three Node vendor checksums, six Miniconda checksums, and the pinned Visual Studio Build Tools object
+
+No repository test framework is configured. The new installer security fixtures are deterministic executable checks; the remaining validation is static analysis, typechecking, packaging, targeted assertions, and production builds.
 
 ## Baseline top 10 highest-impact issues
 
@@ -767,7 +809,7 @@ The repository has no configured automated test framework, no `test` script, and
 
 ---
 
-# Prioritized remediation plan
+# Baseline prioritized remediation plan
 
 ## Phase 0 — Emergency containment, 1–3 days
 
