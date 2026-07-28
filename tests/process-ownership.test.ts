@@ -5,6 +5,9 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import {
 	buildProcessSignalPlan,
+	collectWindowsProcessTree,
+	parseUnixSessionMembers,
+	parseWindowsProcessEntries,
 	signalProcessPlan,
 } from "../src/main/server/scripts/process-ownership";
 
@@ -101,3 +104,84 @@ test(
 		}
 	},
 );
+
+test("Windows CIM process data produces a stable owned tree", () => {
+	const entries = parseWindowsProcessEntries([
+		{ ProcessId: 41, ParentProcessId: 1 },
+		{ ProcessId: "42", ParentProcessId: "41" },
+		{ ProcessId: 43, ParentProcessId: 42 },
+		{ ProcessId: 44, ParentProcessId: 99 },
+		{ ProcessId: "invalid", ParentProcessId: 41 },
+	]);
+	assert.deepEqual(entries, [
+		{ pid: 41, parentPid: 1 },
+		{ pid: 42, parentPid: 41 },
+		{ pid: 43, parentPid: 42 },
+		{ pid: 44, parentPid: 99 },
+	]);
+	assert.deepEqual(collectWindowsProcessTree(41, entries), [41, 42, 43]);
+});
+
+test("Windows process-tree collection handles singleton CIM output and cycles", () => {
+	assert.deepEqual(
+		parseWindowsProcessEntries({ ProcessId: 42, ParentProcessId: 41 }),
+		[{ pid: 42, parentPid: 41 }],
+	);
+	assert.deepEqual(
+		collectWindowsProcessTree(41, [
+			{ pid: 42, parentPid: 41 },
+			{ pid: 41, parentPid: 42 },
+		]),
+		[41, 42],
+	);
+	assert.deepEqual(collectWindowsProcessTree(0, []), []);
+});
+
+test("signal plans preserve Unix groups and Windows descendant-first fallback", () => {
+	assert.deepEqual(
+		buildProcessSignalPlan(41, [41, 42, 43], [41, 44], "linux"),
+		{ groupTargets: [-41, -44], pidTargets: [43, 42] },
+	);
+	assert.deepEqual(buildProcessSignalPlan(41, [41, 42, 43], [], "win32"), {
+		groupTargets: [],
+		pidTargets: [43, 42, 41],
+	});
+});
+
+test("Unix session parsing excludes other sessions and invalid rows", () => {
+	assert.deepEqual(
+		parseUnixSessionMembers(
+			" 101 101 session-a\n 102 202 session-a\n 103 103 other\n invalid 2 session-a\n",
+			"session-a",
+		),
+		[
+			{ pid: 101, processGroupId: 101 },
+			{ pid: 102, processGroupId: 202 },
+		],
+	);
+});
+
+test("signal execution ignores missing processes and reports other errors", () => {
+	const calls: number[] = [];
+	const errors: number[] = [];
+	signalProcessPlan(
+		{ groupTargets: [-41], pidTargets: [42, 43] },
+		"SIGTERM",
+		(target) => {
+			calls.push(target);
+			if (target === 42) {
+				const error = new Error("missing") as NodeJS.ErrnoException;
+				error.code = "ESRCH";
+				throw error;
+			}
+			if (target === 43) {
+				const error = new Error("denied") as NodeJS.ErrnoException;
+				error.code = "EPERM";
+				throw error;
+			}
+		},
+		(target) => errors.push(target),
+	);
+	assert.deepEqual(calls, [-41, 42, 43]);
+	assert.deepEqual(errors, [43]);
+});

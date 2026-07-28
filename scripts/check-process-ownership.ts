@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
+import pty from "@lydell/node-pty";
+import pidtree from "pidtree";
 import {
 	buildProcessSignalPlan,
+	collectWindowsProcessTree,
 	parseUnixSessionMembers,
+	parseWindowsProcessEntries,
 	signalProcessPlan,
 } from "../src/main/server/scripts/process-ownership";
+
+const execFileAsync = promisify(execFile);
 
 function isAlive(pid: number): boolean {
 	try {
@@ -68,6 +75,74 @@ assert.deepEqual(calls, [
 ]);
 
 async function main(): Promise<void> {
+	if (process.platform === "win32") {
+		const directory = await fs.promises.mkdtemp(
+			path.join(os.tmpdir(), "dione-conpty-tree-"),
+		);
+		const childPidFile = path.join(directory, "child.pid");
+		const environment = Object.fromEntries(
+			Object.entries(process.env).filter(
+				(entry): entry is [string, string] => entry[1] !== undefined,
+			),
+		);
+		const terminal = pty.spawn(
+			process.execPath,
+			[
+				"-e",
+				`const {spawn}=require("node:child_process");const fs=require("node:fs");const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});fs.writeFileSync(${JSON.stringify(childPidFile)},String(child.pid));setInterval(()=>{},1000);`,
+			],
+			{ cwd: directory, env: environment, cols: 80, rows: 24 },
+		);
+		let childPid: number | undefined;
+		try {
+			childPid = await waitForFile(childPidFile);
+			const discovered = await pidtree(terminal.pid, { root: true });
+			assert.ok(
+				discovered.includes(childPid),
+				"pidtree discovers a descendant launched through ConPTY",
+			);
+
+			const script =
+				"$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress";
+			const { stdout } = await execFileAsync(
+				"powershell.exe",
+				["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+				{ timeout: 10_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+			);
+			assert.ok(
+				collectWindowsProcessTree(
+					terminal.pid,
+					parseWindowsProcessEntries(JSON.parse(stdout)),
+				).includes(childPid),
+				"CIM fallback discovers a descendant launched through ConPTY",
+			);
+
+			await execFileAsync(
+				"taskkill.exe",
+				["/PID", String(terminal.pid), "/T", "/F"],
+				{ timeout: 10_000, windowsHide: true },
+			);
+			await Promise.all([waitForExit(terminal.pid), waitForExit(childPid)]);
+		} finally {
+			for (const pid of [childPid, terminal.pid].filter(
+				(value): value is number => value !== undefined,
+			)) {
+				if (!isAlive(pid)) continue;
+				try {
+					await execFileAsync("taskkill.exe", [
+						"/PID",
+						String(pid),
+						"/T",
+						"/F",
+					]);
+				} catch {
+					// Best-effort test cleanup after the assertion failure is reported.
+				}
+			}
+			await fs.promises.rm(directory, { recursive: true, force: true });
+		}
+	}
+
 	if (process.platform !== "win32") {
 		const directory = await fs.promises.mkdtemp(
 			path.join(os.tmpdir(), "dione-pgroup-"),

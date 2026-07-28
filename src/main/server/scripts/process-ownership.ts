@@ -8,6 +8,52 @@ export interface UnixSessionMember {
 	processGroupId: number;
 }
 
+export interface WindowsProcessEntry {
+	pid: number;
+	parentPid: number;
+}
+
+export function parseWindowsProcessEntries(
+	value: unknown,
+): WindowsProcessEntry[] {
+	const entries = Array.isArray(value) ? value : [value];
+	return entries.flatMap((entry) => {
+		if (!entry || typeof entry !== "object") return [];
+		const record = entry as Record<string, unknown>;
+		const pid = Number(record.ProcessId);
+		const parentPid = Number(record.ParentProcessId);
+		return Number.isSafeInteger(pid) &&
+			pid > 0 &&
+			Number.isSafeInteger(parentPid) &&
+			parentPid >= 0
+			? [{ pid, parentPid }]
+			: [];
+	});
+}
+
+export function collectWindowsProcessTree(
+	rootPid: number,
+	entries: Iterable<WindowsProcessEntry>,
+): number[] {
+	if (!Number.isSafeInteger(rootPid) || rootPid <= 0) return [];
+	const children = new Map<number, number[]>();
+	for (const { pid, parentPid } of entries) {
+		const siblings = children.get(parentPid) ?? [];
+		siblings.push(pid);
+		children.set(parentPid, siblings);
+	}
+	const result = [rootPid];
+	const seen = new Set(result);
+	for (let index = 0; index < result.length; index++) {
+		for (const child of children.get(result[index]) ?? []) {
+			if (seen.has(child)) continue;
+			seen.add(child);
+			result.push(child);
+		}
+	}
+	return result;
+}
+
 export function parseUnixSessionMembers(
 	output: string,
 	sessionToken: string,

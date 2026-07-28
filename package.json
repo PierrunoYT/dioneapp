@@ -178,7 +178,7 @@
 		"monaco-editor": "^0.53.0",
 		"nanoid": "^5.1.6",
 		"ollama": "^0.6.3",
-		"pidtree": "^0.6.0",
+		"pidtree": "^0.6.1",
 		"qrcode.react": "^4.2.0",
 		"react": "^19.2.1",
 		"react-dom": "^19.2.1",

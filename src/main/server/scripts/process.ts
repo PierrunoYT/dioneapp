@@ -22,7 +22,9 @@ import {
 import {
 	type UnixSessionMember,
 	buildProcessSignalPlan,
+	collectWindowsProcessTree,
 	parseUnixSessionMembers,
+	parseWindowsProcessEntries,
 	signalProcessPlan,
 } from "./process-ownership";
 
@@ -331,33 +333,10 @@ async function getOwnedProcessTree(pid: number): Promise<number[]> {
 						},
 					);
 				});
-				const parsed = JSON.parse(stdout) as
-					| Record<string, unknown>
-					| Array<Record<string, unknown>>;
-				const children = new Map<number, number[]>();
-				for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
-					const processId = Number(entry.ProcessId);
-					const parentId = Number(entry.ParentProcessId);
-					if (
-						!Number.isSafeInteger(processId) ||
-						!Number.isSafeInteger(parentId)
-					) {
-						continue;
-					}
-					const siblings = children.get(parentId) ?? [];
-					siblings.push(processId);
-					children.set(parentId, siblings);
-				}
-				const result = [pid];
-				const seen = new Set(result);
-				for (let index = 0; index < result.length; index++) {
-					for (const child of children.get(result[index]) ?? []) {
-						if (seen.has(child)) continue;
-						seen.add(child);
-						result.push(child);
-					}
-				}
-				return result;
+				return collectWindowsProcessTree(
+					pid,
+					parseWindowsProcessEntries(JSON.parse(stdout)),
+				);
 			} catch (error) {
 				logger.warn(
 					`Failed to enumerate Windows process tree ${pid}: ${error}`,

@@ -31,3 +31,34 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+  windows-process-ownership:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run process ownership contracts
+        run: npm test
+
+      - name: Verify ConPTY, CIM, and taskkill containment fallback
+        run: npm run check-process-ownership
+
+      - name: Install Electron runtime for native compatibility check
+        run: node node_modules/electron/install.js
+
+      - name: Verify native PTY under Electron runtime
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          npx electron ./node_modules/tsx/dist/cli.mjs scripts/check-process-ownership.ts

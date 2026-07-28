@@ -344,7 +344,7 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | path-scurry | 2.0.2 | BlueOak-1.0.0 |
 | path-to-regexp | 8.4.1 | MIT |
 | pend | 1.2.0 | MIT |
-| pidtree | 0.6.0 | MIT |
+| pidtree | 0.6.1 | MIT |
 | pify | 4.0.1 | MIT |
 | possible-typed-array-names | 1.1.0 | MIT |
 | prismjs | 1.30.0 | MIT |
