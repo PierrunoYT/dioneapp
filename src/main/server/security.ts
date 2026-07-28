@@ -2,10 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 
 const backendToken = randomBytes(32).toString("base64url");
-const socketTickets = new Map<
-	string,
-	{ appId: string; expiresAt: number }
->();
+const socketTickets = new Map<string, { appId: string; expiresAt: number }>();
 
 export function getBackendToken(): string {
 	return backendToken;
@@ -15,7 +12,9 @@ export function isValidBackendToken(value: unknown): boolean {
 	if (typeof value !== "string") return false;
 	const supplied = Buffer.from(value);
 	const expected = Buffer.from(backendToken);
-	return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+	return (
+		supplied.length === expected.length && timingSafeEqual(supplied, expected)
+	);
 }
 
 export function createSocketTicket(appId: string): string {
@@ -32,7 +31,9 @@ export function consumeSocketTicket(value: unknown, appId: string): boolean {
 	if (typeof value !== "string") return false;
 	const ticket = socketTickets.get(value);
 	socketTickets.delete(value);
-	return Boolean(ticket && ticket.expiresAt >= Date.now() && ticket.appId === appId);
+	return Boolean(
+		ticket && ticket.expiresAt >= Date.now() && ticket.appId === appId,
+	);
 }
 
 export function requireBackendAuth(
