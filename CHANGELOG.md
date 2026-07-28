@@ -171,6 +171,11 @@ The audit's post-remediation health score is **94/100**, up from a **24/100** ba
 - React Router replaced by a `wouter`-based hash-router compatibility layer (H-23).
 - `window.dione` is now the only renderer bridge; `window.electron` and `window.api` are
   gone (C-03).
+- This changelog is now written by hand and tracked in git. `auto-changelog` was dropped
+  from `npm run deploy`, which no longer regenerates `CHANGELOG.md` from commit history,
+  and the file was removed from `.gitignore`. The tool was invoked through `npx` and was
+  never a declared dependency, so nothing needed uninstalling and the rest of the release
+  flow is unchanged.
 
 ### Known limitations
 
