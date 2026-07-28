@@ -5,185 +5,16 @@ import express from "express";
 const router = express.Router();
 router.use(express.json());
 
-// 	removed auth stuff to avoid security risks, read more in README.md
-
-// auth
-// router.get("/user/:id", async (req, res) => {
-// 	if (!supabase) {
-// 		logger.error("Supabase client is not initialized");
-// 		return res.status(500).json({ error: "Database connection not available" });
-// 	}
-
-// 	// check if request come from app
-// 	const api_key = req.get("api_key");
-// 	if (
-// 		!api_key ||
-// 		api_key !==
-// 		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
-// 	) {
-// 		logger.warn(
-// 			app.isPackaged
-// 				? "Invalid API key"
-// 				: "In development mode, functions like AUTH are not available.",
-// 		);
-// 		return res.status(401).json({ error: "Unauthorized" });
-// 	}
-
-// 	try {
-// 		const { data, error } = await supabase
-// 			.from("users")
-// 			.select("*")
-// 			.eq("id", req.params.id)
-// 			.limit(1);
-// 		if (error) {
-// 			logger.error(
-// 				`Unable to get user: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 			);
-// 			res.status(500).send("An error occurred while processing your request.");
-// 		} else {
-// 			res.send(data);
-// 		}
-// 	} catch (error: any) {
-// 		logger.error(
-// 			`Unable to get user: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 		);
-// 		res.status(500).send("An error occurred while processing your request.");
-// 	}
-// });
-// this refresh all user data (session, user, etc) from db
-// router.get("/refresh-token", async (req, res) => {
-// 	if (!supabase) {
-// 		logger.error("Supabase client is not initialized");
-// 		return res.status(500).json({ error: "Database connection not available" });
-// 	}
-
-// 	// check if request come from app
-// 	const api_key = req.get("api_key");
-// 	if (
-// 		!api_key ||
-// 		api_key !==
-// 		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
-// 	) {
-// 		logger.warn(
-// 			app.isPackaged
-// 				? "Invalid API key"
-// 				: "In development mode, functions like AUTH are not available",
-// 		);
-// 		return res.status(401).json({ error: "Unauthorized" });
-// 	}
-
-// 	try {
-// 		const token = req.get("accessToken");
-// 		if (!token) {
-// 			logger.error("No access token provided");
-// 			res.status(400).send("No access token provided");
-// 			return;
-// 		}
-// 		const { data, error } = await supabase.auth.refreshSession({
-// 			refresh_token: token,
-// 		});
-// 		if (error) {
-// 			logger.error(
-// 				`Unable to refresh session: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 			);
-// 			res.send(error);
-// 		} else {
-// 			res.send(data);
-// 		}
-// 	} catch (error: any) {
-// 		logger.error(
-// 			`Unable to refresh session: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 		);
-// 		res.status(500).send("An error occurred while processing your request.");
-// 	}
-// });
-// router.get("/set-session", async (req, res) => {
-// 	const accessToken = req.get("accessToken");
-// 	const refreshToken = req.get("refreshToken");
-
-// 	if (!supabase) {
-// 		logger.error("Supabase client is not initialized");
-// 		return res.status(500).json({ error: "Database connection not available" });
-// 	}
-
-// 	// check if request come from app
-// 	const api_key = req.get("api_key");
-// 	if (
-// 		!api_key ||
-// 		api_key !==
-// 		(process.env.LOCAL_API_KEY || import.meta.env.MAIN_VITE_LOCAL_API_KEY)
-// 	) {
-// 		logger.warn(
-// 			app.isPackaged
-// 				? "Invalid API key"
-// 				: "In development mode, functions like AUTH are not available",
-// 		);
-// 		return res.status(401).json({ error: "Unauthorized" });
-// 	}
-
-// 	try {
-// 		const { data, error } = await supabase.auth.setSession({
-// 			access_token: accessToken,
-// 			refresh_token: refreshToken,
-// 		});
-// 		if (error) {
-// 			logger.error(
-// 				`Unable to established session: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 			);
-// 			return res.status(500).send(error);
-// 		}
-
-// 		logger.info(`Session established successfully: ${data.user?.id}`);
-// 		const userId = data.user?.id;
-// 		const now = new Date().toISOString();
-
-// 		if (!userId) {
-// 			logger.error("User ID is missing from session");
-// 			return res.status(400).send({ error: "Missing user ID" });
-// 		}
-
-// 		try {
-// 			const { error: updateError } = await supabase
-// 				.from("users")
-// 				.update({ last_login: now })
-// 				.eq("id", userId)
-// 				.select();
-
-// 			if (updateError) {
-// 				logger.error(
-// 					`Unable to update user: [ (${updateError.code || "No code"}) ${updateError.message || "No details"} ]`,
-// 				);
-// 				return res.status(500).send(updateError);
-// 			}
-// 		} catch (updateErr: any) {
-// 			logger.error(
-// 				`Exception while updating user: [ (${updateErr.code || "No code"}) ${updateErr.message || "No details"} ]`,
-// 			);
-// 			return res.status(500).send("An error occurred while updating the user.");
-// 		}
-
-// 		return res.send(data);
-// 	} catch (error: any) {
-// 		logger.error(
-// 			`Unable to get session: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
-// 		);
-// 		return res
-// 			.status(500)
-// 			.send("An error occurred while processing your request.");
-// 	}
-// });
-
-// tables
 router.get("/featured", (_req, res) => {
 	async function getData() {
 		const response = await fetch(
 			"https://api-getdione-app.deeivihh.workers.dev/v1/scripts?limit=4&order_type=desc&featured=true",
 			{
 				headers: {
-					...(process.env.API_KEY
+					...(process.env.DIONE_API_KEY
 						? {
-							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-						}
+								Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+							}
 						: {}),
 				},
 			},
@@ -238,10 +69,10 @@ router.get("/explore", (req, res) => {
 				`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?page=${page}&limit=${limit}&order=${req.query.order_by || "created_at"}&order_type=${req.query.order_type || "asc"}`,
 				{
 					headers: {
-						...(process.env.API_KEY
+						...(process.env.DIONE_API_KEY
 							? {
-								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-							}
+									Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+								}
 							: {}),
 					},
 				},
@@ -306,10 +137,10 @@ router.get("/search/:id", (req, res) => {
 			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?id=${req.params.id}&limit=1`,
 			{
 				headers: {
-					...(process.env.API_KEY
+					...(process.env.DIONE_API_KEY
 						? {
-							Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-						}
+								Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+							}
 						: {}),
 				},
 			},
@@ -371,7 +202,9 @@ router.get("/search/name/:name", async (req, res) => {
 		const orderBy = (req.query.order_by as string) || null;
 		const orderType = (req.query.order_type as string) || "asc";
 		if (sanitizedName) {
-			const url = new URL("https://api-getdione-app.deeivihh.workers.dev/v1/scripts");
+			const url = new URL(
+				"https://api-getdione-app.deeivihh.workers.dev/v1/scripts",
+			);
 			url.searchParams.set("q", sanitizedName);
 			url.searchParams.set("page", String(page));
 			url.searchParams.set("limit", String(limit));
@@ -379,8 +212,8 @@ router.get("/search/name/:name", async (req, res) => {
 			if (orderType) url.searchParams.set("order_type", orderType);
 			const response = await fetch(url.toString(), {
 				headers: {
-					...(process.env.API_KEY
-						? { Authorization: `Bearer ${process.env.API_KEY}` }
+					...(process.env.DIONE_API_KEY
+						? { Authorization: `Bearer ${process.env.DIONE_API_KEY}` }
 						: {}),
 				},
 			});
@@ -457,7 +290,9 @@ router.get("/search/type/:type", async (req, res) => {
 		const orderBy = (req.query.order_by as string) || null;
 		const orderType = (req.query.order_type as string) || "asc";
 
-		const url = new URL("https://api-getdione-app.deeivihh.workers.dev/v1/scripts");
+		const url = new URL(
+			"https://api-getdione-app.deeivihh.workers.dev/v1/scripts",
+		);
 		url.searchParams.set("tags", type);
 		url.searchParams.set("page", String(page));
 		url.searchParams.set("limit", String(limit));
@@ -466,10 +301,10 @@ router.get("/search/type/:type", async (req, res) => {
 
 		const response = await fetch(url.toString(), {
 			headers: {
-				...(process.env.API_KEY
+				...(process.env.DIONE_API_KEY
 					? {
-						Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-					}
+							Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+						}
 					: {}),
 			},
 		});

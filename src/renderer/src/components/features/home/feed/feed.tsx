@@ -29,17 +29,32 @@ export default function List({
 	const observer = useRef<IntersectionObserver | null>(null);
 	const limit = 10;
 	const loadingRef = useRef(false);
+	const requestRef = useRef<
+		| {
+				generation: number;
+				controller: AbortController;
+		  }
+		| undefined
+	>(undefined);
 	const isOnline = useOnlineStatus();
 
 	const fetchScripts = useCallback(
 		async (pageNum: number) => {
 			if (!hasMore || loadingRef.current) return;
 
+			requestRef.current?.controller.abort();
+			const request = {
+				generation: (requestRef.current?.generation ?? 0) + 1,
+				controller: new AbortController(),
+			};
+			requestRef.current = request;
+			const isCurrent = () => requestRef.current === request;
 			loadingRef.current = true;
 
 			if (!isOnline) {
 				const cached = FeedCache.get(endpoint);
 				if (cached) {
+					if (!isCurrent()) return;
 					setScripts(cached);
 					setIsUsingCache(true);
 					setHasMore(false);
@@ -47,6 +62,7 @@ export default function List({
 					loadingRef.current = false;
 					return;
 				}
+				if (!isCurrent()) return;
 				setError(t("feedErrors.offline"));
 				setLoading(false);
 				loadingRef.current = false;
@@ -61,6 +77,7 @@ export default function List({
 				const response = await apiFetch(`${url.pathname}${url.search}`, {
 					method: "GET",
 					headers: { "Content-Type": "application/json" },
+					signal: request.controller.signal,
 				});
 
 				if (!response.ok) {
@@ -68,6 +85,7 @@ export default function List({
 				}
 
 				const data = await response.json();
+				if (!isCurrent()) return;
 
 				if (data.status === 404) {
 					setHasMore(false);
@@ -82,18 +100,17 @@ export default function List({
 					const existingIds = new Set(prev.map((s) => s.id));
 					const newItems = data.filter((script) => !existingIds.has(script.id));
 					const updatedScripts = [...prev, ...newItems];
-
-					if (pageNum === 1 && updatedScripts.length > 0) {
-						FeedCache.set(endpoint, updatedScripts);
-					}
-
 					return updatedScripts;
 				});
+				if (pageNum === 1 && data.length > 0 && isCurrent()) {
+					FeedCache.set(endpoint, data);
+				}
 
 				setPage(pageNum + 1);
 				setHasMore(data.length >= limit);
 				setIsUsingCache(false);
 			} catch (err) {
+				if (!isCurrent() || request.controller.signal.aborted) return;
 				console.error(err);
 
 				const cached = FeedCache.get(endpoint);
@@ -105,8 +122,10 @@ export default function List({
 					setError("Failed to fetch scripts");
 				}
 			} finally {
-				setLoading(false);
-				loadingRef.current = false;
+				if (isCurrent()) {
+					setLoading(false);
+					loadingRef.current = false;
+				}
 			}
 		},
 		[endpoint, hasMore, limit, isOnline, t],
@@ -129,6 +148,8 @@ export default function List({
 	);
 
 	useEffect(() => {
+		requestRef.current?.controller.abort();
+		requestRef.current = undefined;
 		// clear
 		setScripts([]);
 		setPage(1);
@@ -137,6 +158,14 @@ export default function List({
 		setLoading(true);
 		loadingRef.current = false;
 	}, [endpoint]);
+
+	useEffect(
+		() => () => {
+			requestRef.current?.controller.abort();
+			requestRef.current = undefined;
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (loading) {

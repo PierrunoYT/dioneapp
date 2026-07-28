@@ -67,6 +67,15 @@ export const en = {
 			success:
 				"Copied to the clipboard correctly, now paste it in your browser!",
 		},
+		selectPath: {
+			title: "Select the installation path",
+			description:
+				"This folder will contain all your installed scripts, dependencies, and project files. Choose a location that's easily accessible and has enough storage space.",
+			button: "Select a path",
+			success: "Next",
+			warning:
+				"Do not select the same folder where Dione is installed. This may cause conflicts and errors during updates.",
+		},
 		navigation: {
 			back: "Back",
 		},
@@ -778,6 +787,9 @@ export const en = {
 		getDioneWebsite: "getdione.app",
 		version: "Version",
 		port: "Port",
+		node: "Node",
+		electron: "Electron",
+		chromium: "Chromium",
 	},
 
 	// notifications

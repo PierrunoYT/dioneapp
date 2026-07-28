@@ -7,6 +7,7 @@ import type {
 } from "@/components/contexts/types/context-types";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, getBackendPort } from "@/utils/api";
+import { isArray, readStoredJson } from "@/utils/local-storage";
 import { useToast } from "@/utils/use-toast";
 import type { Terminal } from "@xterm/xterm";
 import {
@@ -105,8 +106,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	// active apps
 	const [activeApps, setActiveApps] = useState<any[]>([]);
 	const [removedApps, setRemovedApps] = useState<any[]>(() => {
-		const stored = localStorage.getItem("quickLaunchRemovedApps");
-		return stored ? JSON.parse(stored) : [];
+		return readStoredJson("quickLaunchRemovedApps", () => [], isArray);
 	});
 	const [availableApps, setAvailableApps] = useState<any[]>([]);
 	const [appFinished, setAppFinished] = useState<{ [key: string]: boolean }>(

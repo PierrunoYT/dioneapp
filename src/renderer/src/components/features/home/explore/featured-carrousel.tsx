@@ -20,18 +20,37 @@ export default function FeaturedCarousel() {
 	const isOnline = useOnlineStatus();
 	const [config, setConfig] = useState<any>(null);
 	const prefersReducedMotion = useReducedMotion();
+	const configGeneration = useRef(0);
+	const featuredGeneration = useRef(0);
+	const gradientGeneration = useRef(0);
 
 	const interval = 12000;
 
 	useEffect(() => {
+		const controller = new AbortController();
+		const generation = ++configGeneration.current;
 		const fetchConfig = async () => {
-			const data = await apiJson("/config");
-			setConfig(data);
+			try {
+				const data = await apiJson("/config", { signal: controller.signal });
+				if (generation === configGeneration.current) setConfig(data);
+			} catch (error) {
+				if (!controller.signal.aborted) console.error(error);
+			}
 		};
-		fetchConfig();
+		void fetchConfig();
+		return () => controller.abort();
 	}, []);
 
 	useEffect(() => {
+		const controller = new AbortController();
+		const generation = ++featuredGeneration.current;
+		const isCurrent = () => generation === featuredGeneration.current;
+		const acceptScripts = (next: Script[]) => {
+			if (!isCurrent()) return;
+			setScripts(next);
+			setCurrentIndex(0);
+			void generateGradients(next, generation);
+		};
 		const fetchScripts = async () => {
 			if (!isOnline) {
 				const cached = FeedCache.get("/db/featured");
@@ -40,8 +59,8 @@ export default function FeaturedCarousel() {
 						...cached.filter((s) => s.order === "prior"),
 						...cached.filter((s) => s.order !== "prior"),
 					];
-					setScripts(sorted);
-					generateGradients(sorted);
+					acceptScripts(sorted);
+					if (!isCurrent()) return;
 					setIsUsingCache(true);
 					setLoading(false);
 					return;
@@ -49,14 +68,16 @@ export default function FeaturedCarousel() {
 			}
 
 			try {
-				const data = await apiJson<Script[]>("/db/featured");
+				const data = await apiJson<Script[]>("/db/featured", {
+					signal: controller.signal,
+				});
+				if (!isCurrent()) return;
 				if (Array.isArray(data)) {
 					const sorted = [
 						...data.filter((s) => s.order === "prior"),
 						...data.filter((s) => s.order !== "prior"),
 					];
-					setScripts(sorted);
-					generateGradients(sorted);
+					acceptScripts(sorted);
 
 					if (isOnline) {
 						FeedCache.set("/db/featured", sorted);
@@ -66,6 +87,7 @@ export default function FeaturedCarousel() {
 					setError("Fetched data is not an array");
 				}
 			} catch (err) {
+				if (!isCurrent() || controller.signal.aborted) return;
 				console.error(err);
 
 				const cached = FeedCache.get("/db/featured");
@@ -74,18 +96,18 @@ export default function FeaturedCarousel() {
 						...cached.filter((s) => s.order === "prior"),
 						...cached.filter((s) => s.order !== "prior"),
 					];
-					setScripts(sorted);
-					generateGradients(sorted);
+					acceptScripts(sorted);
 					setIsUsingCache(true);
 				} else {
 					setError("Failed to fetch scripts");
 				}
 			} finally {
-				setLoading(false);
+				if (isCurrent()) setLoading(false);
 			}
 		};
 
-		fetchScripts();
+		void fetchScripts();
+		return () => controller.abort();
 	}, [isOnline]);
 
 	const slides = [...scripts.map((s) => ({ ...s, type: "script" as const }))];
@@ -106,7 +128,11 @@ export default function FeaturedCarousel() {
 
 	const handleDotClick = (index: number) => setCurrentIndex(index);
 
-	const generateGradients = async (scripts: Script[]) => {
+	const generateGradients = async (
+		scripts: Script[],
+		featuredRequestGeneration: number,
+	) => {
+		const generation = ++gradientGeneration.current;
 		const newGradients: Record<string, string> = {};
 
 		const gradients = [
@@ -132,7 +158,12 @@ export default function FeaturedCarousel() {
 			}),
 		);
 
-		setGradients(newGradients);
+		if (
+			generation === gradientGeneration.current &&
+			featuredRequestGeneration === featuredGeneration.current
+		) {
+			setGradients(newGradients);
+		}
 	};
 
 	if (loading) return <CarrouselSkeleton />;

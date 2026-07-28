@@ -74,6 +74,7 @@ const FILE_UNLOCK_TIMEOUT_MS = 60_000;
 const INSTALL_MUTEX_TIMEOUT_MS = 5 * 60 * 1000;
 const INSTALL_MUTEX_STALE_MS = 30 * 60 * 1000;
 const INSTALL_MUTEX_RETRY_MS = 1000;
+let localInstallMutexTail = Promise.resolve();
 const FILE_LOCK_EXIT_CODE = 5001;
 const START_PROCESS_LOCK_EXIT_CODE = 5002;
 const MUTEX_ACQUIRE_EXIT_CODE = 5003;
@@ -493,74 +494,179 @@ async function acquireInstallMutex(
 	binFolder: string,
 	onLog?: LogSink,
 ): Promise<() => Promise<void>> {
-	const tempRoot = path.join(binFolder, "temp");
-	ensureDirectory(tempRoot);
-	const lockPath = path.join(tempRoot, "build_tools.install.lock");
-	const start = Date.now();
-	let warned = false;
+	let releaseLocalMutex: () => void = () => {};
+	const previousLocalOwner = localInstallMutexTail;
+	localInstallMutexTail = new Promise<void>((resolve) => {
+		releaseLocalMutex = resolve;
+	});
+	await previousLocalOwner;
 
-	while (true) {
-		try {
-			const handle = await fsp.open(
-				lockPath,
-				fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR,
-				0o600,
+	try {
+		const tempRoot = path.join(binFolder, "temp");
+		ensureDirectory(tempRoot);
+		const lockPath = path.join(tempRoot, "build_tools.install.lock");
+		const start = Date.now();
+		let warned = false;
+		const ownerToken = crypto.randomUUID();
+		const processStart = await getProcessStartIdentity(process.pid);
+		if (process.platform === "win32" && processStart === null) {
+			throw new Error(
+				"Unable to establish Windows install-lock owner identity",
 			);
-
-			try {
-				await handle.truncate(0);
-				await handle.write(`${process.pid}\n${Date.now()}\n`);
-			} catch (writeError) {
-				logger.warn(`Failed to write install mutex metadata: ${writeError}`);
-			}
-
-			return async () => {
-				try {
-					await handle.close();
-				} catch (closeError) {
-					logger.warn(`Failed to close install mutex handle: ${closeError}`);
-				}
-
-				await fsp.unlink(lockPath).catch(() => {});
-			};
-		} catch (error) {
-			const err = error as NodeJS.ErrnoException;
-			if (err.code !== "EEXIST") {
-				throw err;
-			}
-
-			if (!warned) {
-				logMessage(
-					onLog,
-					"Another Visual Studio Build Tools installation is in progress. Waiting for it to finish...",
-					"warn",
-				);
-				warned = true;
-			}
-
-			try {
-				const stat = await fsp.stat(lockPath);
-				if (Date.now() - stat.mtimeMs > INSTALL_MUTEX_STALE_MS) {
-					await fsp.unlink(lockPath);
-					continue;
-				}
-			} catch (statError) {
-				const errno = statError as NodeJS.ErrnoException;
-				if (errno.code === "ENOENT") {
-					continue;
-				}
-				logger.warn(`Failed to inspect build tools install lock: ${statError}`);
-			}
-
-			if (Date.now() - start >= INSTALL_MUTEX_TIMEOUT_MS) {
-				throw new Error(
-					"Another Visual Studio Build Tools installation is already running. Please try again later.",
-				);
-			}
-
-			await delay(INSTALL_MUTEX_RETRY_MS);
 		}
+
+		while (true) {
+			try {
+				const handle = await fsp.open(
+					lockPath,
+					fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR,
+					0o600,
+				);
+
+				let heartbeatWrite = Promise.resolve();
+				const writeHeartbeat = () => {
+					heartbeatWrite = heartbeatWrite.then(async () => {
+						await handle.truncate(0);
+						await handle.write(
+							JSON.stringify({
+								pid: process.pid,
+								processStart,
+								ownerToken,
+								heartbeat: Date.now(),
+							}),
+							0,
+						);
+						await handle.sync();
+					});
+					return heartbeatWrite;
+				};
+				try {
+					await writeHeartbeat();
+				} catch (writeError) {
+					await handle.close();
+					await fsp.unlink(lockPath).catch(() => {});
+					throw new Error(`Failed to initialize install mutex: ${writeError}`);
+				}
+
+				const heartbeat = setInterval(() => {
+					void writeHeartbeat().catch((error) => {
+						logger.warn(`Failed to heartbeat install mutex: ${error}`);
+					});
+				}, 10_000);
+				heartbeat.unref();
+
+				return async () => {
+					clearInterval(heartbeat);
+					await heartbeatWrite.catch((error) => {
+						logger.warn(`Final install mutex heartbeat failed: ${error}`);
+					});
+					try {
+						const metadata = JSON.parse(await fsp.readFile(lockPath, "utf8"));
+						if (metadata.ownerToken === ownerToken) await fsp.unlink(lockPath);
+					} catch (releaseError) {
+						if ((releaseError as NodeJS.ErrnoException).code !== "ENOENT") {
+							logger.warn(
+								`Failed to release owned install mutex: ${releaseError}`,
+							);
+						}
+					}
+					try {
+						await handle.close();
+					} catch (closeError) {
+						logger.warn(`Failed to close install mutex handle: ${closeError}`);
+					} finally {
+						releaseLocalMutex();
+					}
+				};
+			} catch (error) {
+				const err = error as NodeJS.ErrnoException;
+				if (err.code !== "EEXIST") {
+					throw err;
+				}
+
+				if (!warned) {
+					logMessage(
+						onLog,
+						"Another Visual Studio Build Tools installation is in progress. Waiting for it to finish...",
+						"warn",
+					);
+					warned = true;
+				}
+
+				try {
+					const stat = await fsp.stat(lockPath);
+					const metadata = JSON.parse(await fsp.readFile(lockPath, "utf8"));
+					if (
+						Date.now() - stat.mtimeMs > INSTALL_MUTEX_STALE_MS &&
+						!(await isLockOwnerAlive(metadata.pid, metadata.processStart))
+					) {
+						await fsp.unlink(lockPath);
+						continue;
+					}
+				} catch (statError) {
+					const errno = statError as NodeJS.ErrnoException;
+					if (errno.code === "ENOENT") {
+						continue;
+					}
+					logger.warn(
+						`Failed to inspect build tools install lock: ${statError}`,
+					);
+				}
+
+				if (Date.now() - start >= INSTALL_MUTEX_TIMEOUT_MS) {
+					throw new Error(
+						"Another Visual Studio Build Tools installation is already running. Please try again later.",
+					);
+				}
+
+				await delay(INSTALL_MUTEX_RETRY_MS);
+			}
+		}
+	} catch (error) {
+		releaseLocalMutex();
+		throw error;
 	}
+}
+
+async function getProcessStartIdentity(pid: number): Promise<string | null> {
+	if (process.platform === "win32") {
+		const result = spawnSync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-NonInteractive",
+				"-Command",
+				`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
+			],
+			{ encoding: "utf8", windowsHide: true },
+		);
+		const identity = result.status === 0 ? result.stdout.trim() : "";
+		return /^\d+$/.test(identity) ? identity : null;
+	}
+	if (process.platform !== "linux") return null;
+	try {
+		const fields = (await fsp.readFile(`/proc/${pid}/stat`, "utf8"))
+			.trim()
+			.split(" ");
+		return fields[21] ?? null;
+	} catch {
+		return null;
+	}
+}
+
+async function isLockOwnerAlive(
+	pid: unknown,
+	expectedStart: unknown,
+): Promise<boolean> {
+	if (!Number.isInteger(pid) || (pid as number) <= 0) return false;
+	try {
+		process.kill(pid as number, 0);
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+	if (typeof expectedStart !== "string") return false;
+	const actualStart = await getProcessStartIdentity(pid as number);
+	return actualStart !== null && actualStart === expectedStart;
 }
 
 async function runElevatedInstaller(
@@ -577,10 +683,8 @@ async function runElevatedInstaller(
 		throw new Error("Aborted");
 	}
 
-	const scriptPath = path.join(
-		options.tempDir,
-		`launch_vs_buildtools_${Date.now()}_${crypto.randomUUID()}.ps1`,
-	);
+	const scriptDir = await fsp.mkdtemp(path.join(options.tempDir, "elevated-"));
+	const scriptPath = path.join(scriptDir, "launch.ps1");
 	const unlockTimeoutSeconds = Math.ceil(FILE_UNLOCK_TIMEOUT_MS / 1000);
 
 	const scriptContent = `
@@ -707,7 +811,16 @@ try {
 }
 `.trim();
 
-	await fsp.writeFile(scriptPath, scriptContent, "utf8");
+	try {
+		await fsp.writeFile(scriptPath, scriptContent, {
+			encoding: "utf8",
+			flag: "wx",
+			mode: 0o600,
+		});
+	} catch (error) {
+		await fsp.rm(scriptDir, { recursive: true, force: true }).catch(() => {});
+		throw error;
+	}
 
 	const argsBase64 = encodeArgumentsToBase64(options.args);
 	const psArguments = [
@@ -804,7 +917,7 @@ try {
 		}
 		throw e;
 	} finally {
-		await fsp.rm(scriptPath, { force: true }).catch(() => {});
+		await fsp.rm(scriptDir, { recursive: true, force: true }).catch(() => {});
 	}
 }
 

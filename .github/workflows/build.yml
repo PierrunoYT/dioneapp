@@ -105,15 +105,17 @@ jobs:
     - name: Install dependencies
       run: npm ci --prefer-offline --no-audit --no-fund --silent --ignore-scripts
 
+    - name: Validate locale schema
+      run: npm run check-locales
+
     - name: Build app
       run: ${{ matrix.build-command }}
       env:
         NODE_OPTIONS: --max-old-space-size=4096
-        VITE_DB_URL: ${{ secrets.DB_URL }}
-        VITE_DB_KEY: ${{ secrets.DB_KEY }}
-        VITE_DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_URL }}
-        MAIN_VITE_API_KEY: ${{ secrets.API_KEY }}
-        MAIN_VITE_LOCAL_API_KEY: ${{ secrets.LOCAL_API_KEY }}
+        # These are public Supabase client values protected by database RLS,
+        # not privileged service credentials.
+        VITE_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
     - name: Compress artifacts
       run: |

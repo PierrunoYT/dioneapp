@@ -61,7 +61,38 @@ All nine low-severity findings from the baseline audit have been remediated:
 | L-08 | Resolved | README repository, release, support, security, account-status, and maintenance-status copy was updated; stale renderer login entry points were removed. |
 | L-09 | Resolved | Added a deterministic lockfile-derived `THIRD_PARTY_NOTICES.md`, explicit reviewed overrides for the three lock entries without license metadata, packaging rules, and a build-time freshness check. |
 
-The **24/100 score remains the historical baseline score** and has not been recalculated. The unresolved critical, high, and medium findings continue to dominate current risk.
+The **24/100 score remains the historical baseline score** and has not been recalculated. The unresolved critical and high findings continue to dominate current risk.
+
+## Medium-severity remediation update — July 28, 2026
+
+The code-level remediation for M-01 through M-21 is complete. M-02 and M-20 were already resolved in the July 27 quick-win pass; the remaining findings were addressed in this pass. M-22 is conditionally resolved at the code boundary, but deployment-side Supabase key classification and row-level security policies must be verified outside this repository before it can be closed unconditionally.
+
+| Finding | Status | Remediation |
+|---|---|---|
+| M-01 | Resolved | Added a process-level idempotent shutdown coordinator with effective deadlines, failure-isolated cleanup, backend-dependent cleanup ordering, and coverage for window close, normal quit, restart, and updater paths. |
+| M-02 | Previously resolved | The single-instance lock remains ahead of startup side effects. |
+| M-03 | Resolved | The backend binds directly to loopback port `0`, rejects listen failures, and reads the assigned port from the listening socket; the race-prone port reservation helper was removed. |
+| M-04 | Resolved | Configuration updates use a strict allowlist and types, canonicalize paths through existing ancestors, reject filesystem/application/system roots, and persist atomically with file and directory fsync. |
+| M-05 | Resolved | Removed the generic environment-variable router and renderer editor. Runtime settings now use the typed configuration surface. |
+| M-06 | Resolved | Tunnel operations are serialized, credentials are not logged, old close events cannot clear newer state, and only the actual backend port can be exposed. |
+| M-07 | Resolved | Added request/history/context/output/tool-loop limits, model allowlisting, per-operation abortable Ollama clients, deadlines, concurrency and pull-rate limits, bounded tool reads, and a free-space-aware model pull budget. |
+| M-08 | Resolved | AI logs now contain operational metadata such as IDs, sizes, models, outcomes, and timings rather than prompts, responses, reasoning, source context, or tool content. |
+| M-09 | Resolved | Git cloning now accepts approved credential-free HTTPS GitHub URLs only, manually validates every redirect, atomically reserves and verifies a contained destination, and removes failed partial clones. |
+| M-10 | Resolved | Elevated scripts are created exclusively in private temporary directories with restrictive permissions and are removed in `finally` cleanup. |
+| M-11 | Resolved | Installer locks use owner tokens, PID and process-start identity, serialized heartbeats, liveness checks, in-process serialization, ownership-checked release, and stale-owner recovery. |
+| M-12 | Resolved | CUDA removal uses promise-based filesystem APIs and deletes only manifest-proven Dione-owned paths and matching environment entries. |
+| M-13 | Resolved | Automatic dependency updates require immutable inputs: hashed Python requirements or lockfiles, frozen Node lockfiles, and lifecycle-script suppression; unsafe mutable updates are refused. |
+| M-14 | Resolved | Manifest discovery is asynchronous and iterative with cancellation, ignored heavy directories, and explicit depth and entry budgets. |
+| M-15 | Resolved | Workspace tree/file requests use generations and abort signals; saves capture file identity and mark clean only when the saved content is still current. |
+| M-16 | Resolved | Renderer AI submissions are serialized and use current-message references and pending state so stale snapshots cannot overwrite chat or loading state. |
+| M-17 | Resolved | Feed and featured requests abort or ignore stale completions, and the carousel resets its index when an accepted slide set changes. |
+| M-18 | Resolved | Audit-identified local-storage reads now use a shared parser with shape validation, invalid-value removal, and fresh defaults. |
+| M-19 | Resolved | Settings use serialized partial PATCH operations; reset is in the same recovered queue, blocks later writes, clears only owned keys, and navigates only after confirmation. |
+| M-20 | Previously resolved | Settings reset continues to await session termination before navigation. |
+| M-21 | Resolved | Runtime translation lookup falls back to English, locale selection is validated, and CI checks every locale for invalid or unknown schema entries. |
+| M-22 | **Conditionally resolved** | Build-time webhook and privileged API-token injection was removed. Bundled Supabase values are explicitly public URL/anonymous credentials; reports pass through the backend and privileged service access uses optional runtime-only `DIONE_API_KEY`. Confirm that the deployed key is truly anonymous and that RLS is enabled and tested for every reachable table before closing this finding. |
+
+The **24/100 health score remains the historical audit baseline**; it has not been recalculated. This remediation does not certify the application as secure, and the unresolved critical and high findings still dominate overall risk. The medium-finding table below is retained as the original baseline evidence and recommendation record; current status is authoritative in this remediation update.
 
 ## Top 10 highest-impact issues
 

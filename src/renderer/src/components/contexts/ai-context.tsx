@@ -12,6 +12,12 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		[],
 	);
 	const [messageLoading, setMessageLoading] = useState(false);
+	const messagesRef = useRef<{ role: string; content: string }[]>([]);
+	const queueRef = useRef<Promise<void>>(Promise.resolve());
+	const generationRef = useRef(0);
+	const pendingRef = useRef(0);
+	const controllersRef = useRef(new Set<AbortController>());
+	const mountedRef = useRef(true);
 	const [redirecting, setRedirecting] = useState(false);
 	const [usingTool, setUsingTool] = useState({ name: "", message: "" });
 	const [ollamaStatus, setOllamaStatus] = useState("");
@@ -138,7 +144,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		return response;
 	}
 
-	const chat = async (
+	const runChat = async (
 		prompt: string,
 		quickAI?: boolean,
 		code?: {
@@ -149,25 +155,26 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 			workspaceFiles: any;
 			workspacePath: string;
 		},
+		generation = generationRef.current,
 	) => {
+		if (generation !== generationRef.current || !mountedRef.current) return;
 		const userMessage = { role: "user", content: prompt };
-		const newMessages = [...messages, userMessage];
+		const newMessages = [...messagesRef.current, userMessage];
+		messagesRef.current = newMessages;
 		setMessages(newMessages);
 
 		if (!ollamaRunning) {
 			await handleStartOllama();
 			await new Promise((resolve) => setTimeout(resolve, 500)); // wait for ollama to start
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: "Starting ollama..." },
-			]);
+			if (generation !== generationRef.current) return;
 		}
 
+		const controller = new AbortController();
+		controllersRef.current.add(controller);
 		try {
+			pendingRef.current++;
 			setMessageLoading(true);
-			console.log("QuickAI", quickAI);
 			if (quickAI === undefined || quickAI === null) {
-				console.log("QuickAI set to true");
 				quickAI = true;
 			}
 			const response = await apiFetch(`/ai/ollama/chat`, {
@@ -188,9 +195,11 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 						workspaceFiles: code?.workspaceFiles,
 					},
 				}),
+				signal: controller.signal,
 			});
 
 			const data = await response.json();
+			if (generation !== generationRef.current || !mountedRef.current) return;
 
 			if (data?.error && !redirecting) {
 				console.error(data?.message);
@@ -199,28 +208,64 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 				//     ...prev,
 				//     { role: "assistant", content: data?.message },
 				// ]);
-				setMessageLoading(false);
 				return;
 			}
 
 			setUsingTool({ name: "", message: "" });
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: data?.message?.content },
-			]);
-			setMessageLoading(false);
+			const responseMessage = {
+				role: "assistant",
+				content: data?.message?.content,
+			};
+			messagesRef.current = [...messagesRef.current, responseMessage];
+			setMessages(messagesRef.current);
 		} catch (error) {
-			console.error("Error fetching data:", error);
-			setMessages((prev) => [
-				...prev,
-				{
-					role: "assistant",
-					content: "An error occurred while fetching data. Please try again.",
-				},
-			]);
-			setMessageLoading(false);
+			if (
+				controller.signal.aborted ||
+				generation !== generationRef.current ||
+				!mountedRef.current
+			)
+				return;
+			const errorMessage = {
+				role: "assistant",
+				content: "An error occurred while fetching data. Please try again.",
+			};
+			messagesRef.current = [...messagesRef.current, errorMessage];
+			setMessages(messagesRef.current);
+		} finally {
+			controllersRef.current.delete(controller);
+			pendingRef.current = Math.max(0, pendingRef.current - 1);
+			if (mountedRef.current) setMessageLoading(pendingRef.current > 0);
 		}
 	};
+
+	const chat: AIContextType["chat"] = (prompt, quickAI, code) => {
+		const generation = generationRef.current;
+		const queued = queueRef.current.then(() =>
+			runChat(prompt, quickAI, code, generation),
+		);
+		queueRef.current = queued.catch(() => undefined);
+		return queued;
+	};
+
+	const clearChat = () => {
+		generationRef.current++;
+		for (const controller of controllersRef.current) controller.abort();
+		controllersRef.current.clear();
+		messagesRef.current = [];
+		pendingRef.current = 0;
+		setMessages([]);
+		setMessageLoading(false);
+		setUsingTool({ name: "", message: "" });
+	};
+
+	useEffect(() => {
+		return () => {
+			mountedRef.current = false;
+			generationRef.current++;
+			for (const controller of controllersRef.current) controller.abort();
+			controllersRef.current.clear();
+		};
+	}, []);
 
 	useEffect(() => {
 		const socket = sockets["ollama"]?.socket;
@@ -266,9 +311,8 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		<AIContext.Provider
 			value={{
 				messages,
-				setMessages,
+				clearChat,
 				messageLoading,
-				setMessageLoading,
 				redirecting,
 				setRedirecting,
 				usingTool,

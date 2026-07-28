@@ -89,6 +89,33 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 	const [entryDialogValue, setEntryDialogValue] = useState("");
 	const [entryDialogError, setEntryDialogError] = useState<string | null>(null);
 	const [isEntryDialogSubmitting, setIsEntryDialogSubmitting] = useState(false);
+	const workspaceGenerationRef = useRef(0);
+	const rootControllerRef = useRef<AbortController | null>(null);
+	const directoryRequestsRef = useRef(new Map<string, number>());
+	const fileRequestRef = useRef<
+		| {
+				generation: number;
+				controller: AbortController;
+		  }
+		| undefined
+	>(undefined);
+	const selectedFileRef = useRef<string | null>(null);
+	const fileContentRef = useRef("");
+	const saveGenerationRef = useRef(0);
+
+	useEffect(() => {
+		selectedFileRef.current = selectedFile;
+		fileContentRef.current = fileContent;
+	}, [selectedFile, fileContent]);
+
+	useEffect(
+		() => () => {
+			workspaceGenerationRef.current++;
+			rootControllerRef.current?.abort();
+			fileRequestRef.current?.controller.abort();
+		},
+		[],
+	);
 
 	useEffect(() => {
 		expandedPathsRef.current = expandedPaths;
@@ -128,6 +155,13 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			const normalizedPath = normalizeRelativePath(relativePath);
 			const targetPath = normalizedPath;
 			const isRootPath = targetPath === "";
+			const workspaceGeneration = workspaceGenerationRef.current;
+			const requestGeneration =
+				(directoryRequestsRef.current.get(targetPath) ?? 0) + 1;
+			directoryRequestsRef.current.set(targetPath, requestGeneration);
+			const isCurrent = () =>
+				workspaceGeneration === workspaceGenerationRef.current &&
+				directoryRequestsRef.current.get(targetPath) === requestGeneration;
 
 			if (isRootPath) {
 				setIsLoadingTree(true);
@@ -158,6 +192,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				).then(
 					(res) => res.json() as Promise<{ entries: FileEntryResponse[] }>,
 				);
+				if (!isCurrent()) return;
 				setWorkspaceError(null);
 				const expandedSet = new Set(expandedPathsRef.current);
 
@@ -221,6 +256,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 					return [...prev, targetPath];
 				});
 			} catch (error: any) {
+				if (!isCurrent()) return;
 				const status = error?.status ?? 0;
 				if (isRootPath) {
 					if (status === 404) {
@@ -247,6 +283,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 					);
 				}
 			} finally {
+				if (!isCurrent()) return;
 				if (isRootPath) {
 					setIsLoadingTree(false);
 					setTree((prev) =>
@@ -270,6 +307,12 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 
 	const fetchRootPath = useCallback(async () => {
 		if (!data?.name) return;
+		rootControllerRef.current?.abort();
+		fileRequestRef.current?.controller.abort();
+		const controller = new AbortController();
+		rootControllerRef.current = controller;
+		const generation = ++workspaceGenerationRef.current;
+		const isCurrent = () => generation === workspaceGenerationRef.current;
 		setIsLoadingTree(true);
 		resetState();
 
@@ -280,7 +323,9 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			}
 			const payload = await apiFetch(
 				`/files/root/${encodeURIComponent(data.name)}${params.toString() ? `?${params.toString()}` : ""}`,
+				{ signal: controller.signal },
 			).then((res) => res.json() as Promise<{ rootPath: string }>);
+			if (!isCurrent()) return;
 			setRootPath(payload.rootPath);
 			setTree([
 				{
@@ -302,8 +347,10 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			setActivePath("");
 			setExpandedPaths([""]);
 			await new Promise((resolve) => setTimeout(resolve, 0));
+			if (!isCurrent()) return;
 			await loadDirectory("");
 		} catch (error: any) {
+			if (!isCurrent() || controller.signal.aborted) return;
 			const status = error?.status ?? 0;
 			setRootPath("");
 			if (status === 404) {
@@ -312,7 +359,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				showToast("error", error?.message || "Unable to open workspace");
 			}
 		} finally {
-			setIsLoadingTree(false);
+			if (isCurrent()) setIsLoadingTree(false);
 		}
 	}, [data?.id, data?.name, loadDirectory, resetState, showToast]);
 
@@ -392,6 +439,16 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				preview: filePreviewUrl,
 				active: activePath,
 			};
+			fileRequestRef.current?.controller.abort();
+			const request = {
+				generation: (fileRequestRef.current?.generation ?? 0) + 1,
+				controller: new AbortController(),
+			};
+			fileRequestRef.current = request;
+			const workspaceGeneration = workspaceGenerationRef.current;
+			const isCurrent = () =>
+				fileRequestRef.current === request &&
+				workspaceGeneration === workspaceGenerationRef.current;
 
 			setSelectedFile(node.relativePath);
 			setIsLoadingFile(true);
@@ -407,7 +464,9 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				}
 				const payload = await apiFetch(
 					`/files/content/${encodeURIComponent(data.name)}?${params.toString()}`,
+					{ signal: request.controller.signal },
 				).then((res) => res.json() as Promise<FileContentResponse>);
+				if (!isCurrent()) return;
 				if (payload.encoding === "base64") {
 					const extensionKey = getExtensionKey(node.name);
 					const fallbackMime = extensionKey
@@ -440,6 +499,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 					);
 				}
 			} catch (error: any) {
+				if (!isCurrent() || request.controller.signal.aborted) return;
 				setFileContent(previousState.content ?? "");
 				setInitialContent(previousState.initial ?? "");
 				setFileEncoding(previousState.encoding ?? null);
@@ -476,7 +536,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 					showToast("error", message);
 				}
 			} finally {
-				setIsLoadingFile(false);
+				if (isCurrent()) setIsLoadingFile(false);
 			}
 		},
 		[
@@ -499,6 +559,10 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			showToast("warning", "This file type cannot be edited yet.");
 			return;
 		}
+		const savedFile = selectedFile;
+		const savedContent = fileContent;
+		const workspaceGeneration = workspaceGenerationRef.current;
+		const saveGeneration = ++saveGenerationRef.current;
 		setIsSaving(true);
 		try {
 			const params = new URLSearchParams();
@@ -510,15 +574,28 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ file: selectedFile, content: fileContent }),
+					body: JSON.stringify({ file: savedFile, content: savedContent }),
 				},
 			);
-			setInitialContent(fileContent);
-			showToast("success", "File saved successfully");
+			if (
+				workspaceGeneration === workspaceGenerationRef.current &&
+				saveGeneration === saveGenerationRef.current &&
+				selectedFileRef.current === savedFile &&
+				fileContentRef.current === savedContent
+			) {
+				setInitialContent(savedContent);
+				showToast("success", "File saved successfully");
+			}
 		} catch (error: any) {
-			showToast("error", error?.message || "Failed to save file");
+			if (
+				workspaceGeneration === workspaceGenerationRef.current &&
+				saveGeneration === saveGenerationRef.current &&
+				selectedFileRef.current === savedFile
+			) {
+				showToast("error", error?.message || "Failed to save file");
+			}
 		} finally {
-			setIsSaving(false);
+			if (saveGeneration === saveGenerationRef.current) setIsSaving(false);
 		}
 	}, [
 		data?.id,

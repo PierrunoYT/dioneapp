@@ -13,7 +13,6 @@ interface OtherTabProps {
 	handleLogsDir: () => void;
 	handleCheckUpdates: () => void;
 	handleExportLogs: () => void;
-	openVariablesModal: (state: boolean) => void;
 	handleReportError: () => void;
 	handleResetSettings: () => void;
 	packVersion: string;
@@ -27,7 +26,6 @@ export default function OtherTab({
 	handleLogsDir,
 	handleCheckUpdates,
 	handleExportLogs,
-	openVariablesModal,
 	handleReportError,
 	handleResetSettings,
 	packVersion,
@@ -49,10 +47,10 @@ export default function OtherTab({
 				description={t("settings.other.disableAutoUpdate.description")}
 			>
 				<ToggleSwitch
-					enabled={config.disableAutoUpdate}
+					enabled={config.disableAutoUpdates}
 					onChange={() =>
 						handleUpdate({
-							disableAutoUpdate: !config.disableAutoUpdate,
+							disableAutoUpdates: !config.disableAutoUpdates,
 						})
 					}
 				/>
@@ -95,19 +93,6 @@ export default function OtherTab({
 						variant="mono"
 					/>
 				</div>
-			</SettingItem>
-
-			<SettingItem
-				label={t("settings.other.variables.label")}
-				description={t("settings.other.variables.description")}
-			>
-				<Button
-					variant="tertiary"
-					size="md"
-					onClick={() => openVariablesModal(true)}
-				>
-					{t("settings.other.variables.button")}
-				</Button>
 			</SettingItem>
 
 			<SettingItem

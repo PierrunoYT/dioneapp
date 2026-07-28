@@ -446,7 +446,7 @@ export const pl = {
 		error: {
 			title: "Wystąpił",
 			subtitle: "nieoczekiwany błąd",
-			hasOccurred: "",
+			hasOccurred: "has occurred",
 			deps: "Dione nie był w stanie usunąć żadnej zależności, proszę zrobić to ręcznie.",
 			general:
 				"Spróbuj ponownie później lub sprawdź logi, aby uzyskać więcej informacji.",

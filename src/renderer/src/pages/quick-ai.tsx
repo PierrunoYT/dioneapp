@@ -19,7 +19,7 @@ export default function QuickAI() {
 	const {
 		chat,
 		messages,
-		setMessages,
+		clearChat,
 		usingTool,
 		messageLoading,
 		checkOllama,
@@ -161,7 +161,7 @@ export default function QuickAI() {
 							<Button
 								variant="outline"
 								size="icon-sm"
-								onClick={() => setMessages([])}
+								onClick={clearChat}
 								title="Clear chat"
 								aria-label="Clear chat"
 								className="border-white/40 hover:border-neutral-200 group"

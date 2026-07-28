@@ -6,14 +6,17 @@ import { createClient } from "@supabase/supabase-js";
 let supabase: ReturnType<typeof createClient> | null = null;
 
 try {
-	if (!import.meta.env.VITE_DB_URL || !import.meta.env.VITE_DB_KEY) {
+	if (
+		!import.meta.env.VITE_PUBLIC_SUPABASE_URL ||
+		!import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY
+	) {
 		logger.warn(
-			"Supabase not initialized: If you are in DEV mode remember, functions like AUTH are not available. If you want to use your own database, set VITE_DB_URL and VITE_DB_KEY in your .env file.",
+			"Supabase not initialized. Set the public Supabase URL and anonymous key to enable database-backed features.",
 		);
 	} else {
 		supabase = createClient(
-			import.meta.env.VITE_DB_URL,
-			import.meta.env.VITE_DB_KEY,
+			import.meta.env.VITE_PUBLIC_SUPABASE_URL,
+			import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY,
 			{
 				auth: {
 					persistSession: true,

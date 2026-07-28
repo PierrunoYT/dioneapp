@@ -4,6 +4,7 @@ import Loading from "@/components/features/install/loading-skeleton";
 import Icon from "@/components/icons/icon";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
+import { isArrayRecord, readStoredJson } from "@/utils/local-storage";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -40,7 +41,7 @@ export default function Installed() {
 			}
 
 			try {
-				const cachedData = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}");
+				const cachedData = readStoredJson(CACHE_KEY, () => ({}), isArrayRecord);
 				const cacheTimestamp = Number.parseInt(
 					localStorage.getItem(CACHE_TIMESTAMP_KEY) || "0",
 				);

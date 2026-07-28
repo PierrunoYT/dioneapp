@@ -92,31 +92,47 @@ const translations = {
 	zh,
 } as const;
 
+const mergeLocale = (fallback: unknown, locale: unknown): unknown => {
+	if (typeof fallback === "string") {
+		return typeof locale === "string" && locale.length > 0 ? locale : fallback;
+	}
+	if (!fallback || typeof fallback !== "object" || Array.isArray(fallback)) {
+		return fallback;
+	}
+	const source =
+		locale && typeof locale === "object" && !Array.isArray(locale)
+			? (locale as Record<string, unknown>)
+			: {};
+	return Object.fromEntries(
+		Object.entries(fallback).map(([key, value]) => [
+			key,
+			mergeLocale(value, source[key]),
+		]),
+	);
+};
+
+const safeTranslations = Object.fromEntries(
+	Object.entries(translations).map(([language, locale]) => [
+		language,
+		mergeLocale(en, locale),
+	]),
+) as Record<Language, typeof en>;
+
 // helper to get nested translation
-const getNestedTranslation = (obj: any, path: string): string => {
+const getNestedTranslation = (
+	obj: unknown,
+	path: string,
+): string | undefined => {
 	const keys = path.split(".");
-	let result = obj;
-	const missingFields: string[] = [];
+	let result: unknown = obj;
 
 	for (const key of keys) {
-		if (result[key] === undefined) {
-			missingFields.push(key);
-			// continue traversing to find all missing fields
-			result = {};
-			continue;
+		if (!result || typeof result !== "object" || !(key in result)) {
+			return undefined;
 		}
-		result = result[key];
+		result = (result as Record<string, unknown>)[key];
 	}
-
-	if (missingFields.length > 0) {
-		const missingPath = keys
-			.slice(0, keys.indexOf(missingFields[0]) + 1)
-			.join(".");
-		console.warn(`Translation missing fields: ${missingPath} in ${path}`);
-		return path;
-	}
-
-	return result;
+	return typeof result === "string" ? result : undefined;
 };
 
 // provider component
@@ -129,7 +145,11 @@ export function TranslationProvider({ children }: { children: ReactNode }) {
 
 	// translation function
 	const t = (key: string): string => {
-		return getNestedTranslation(translations[language], key);
+		return (
+			getNestedTranslation(safeTranslations[language], key) ??
+			getNestedTranslation(en, key) ??
+			""
+		);
 	};
 
 	const fetchConfig = async () => {
@@ -140,12 +160,12 @@ export function TranslationProvider({ children }: { children: ReactNode }) {
 		if (!newConfig.language) return;
 		const config = await fetchConfig();
 		if (newConfig.language === config.language) return;
-		const response = await apiJson<Record<string, any>>("/config/update", {
-			method: "POST",
+		const response = await apiJson<Record<string, any>>("/config", {
+			method: "PATCH",
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ ...config, ...newConfig }),
+			body: JSON.stringify({ language: newConfig.language }),
 		});
 		setLanguage(response.language);
 		localStorage.setItem("language", response.language);

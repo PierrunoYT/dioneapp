@@ -27,7 +27,6 @@ interface TunnelInfo {
 	url: string;
 	type: "localtunnel";
 	status: "active" | "connecting" | "error";
-	password?: string;
 }
 
 interface SystemUsage {
@@ -421,7 +420,6 @@ export default function IframeComponent({
 			<NetworkShareModal
 				isOpen={showNetworkShareModal}
 				onClose={() => setShowNetworkShareModal(false)}
-				targetPort={currentPort}
 				tunnelInfo={tunnelInfo}
 				setTunnelInfo={setTunnelInfo}
 			/>

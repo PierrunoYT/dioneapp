@@ -11,7 +11,6 @@ import { createLocalScriptsRouter } from "@/server/routes/local";
 import reportRouter from "@/server/routes/report";
 import { createScriptRouter } from "@/server/routes/scripts";
 import searchBarRouter from "@/server/routes/searchbar";
-import { createVariablesRouter } from "@/server/routes/variables";
 
 export const setupRoutes = (server: Express, io: Server) => {
 	server.get("/", (_req, res) => {
@@ -36,9 +35,6 @@ export const setupRoutes = (server: Express, io: Server) => {
 
 	// local scripts stuff
 	server.use("/local", createLocalScriptsRouter(io));
-
-	// variables stuff
-	server.use("/variables", createVariablesRouter());
 
 	// files stuff
 	server.use("/files", filesRouter);

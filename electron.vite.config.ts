@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import 'dotenv/config';
+import "dotenv/config";
 import {
 	defineConfig,
 	defineViteConfig,
@@ -10,12 +10,8 @@ import { resolve } from "node:path";
 
 export default defineConfig({
 	main: {
-		envPrefix: ["VITE_"],
+		envPrefix: ["VITE_PUBLIC_"],
 		plugins: [externalizeDepsPlugin()],
-		define: {
-			"process.env.API_KEY": JSON.stringify(process.env.MAIN_VITE_API_KEY),
-			"process.env.LOCAL_API_KEY": JSON.stringify(process.env.MAIN_VITE_LOCAL_API_KEY),
-		},
 		resolve: {
 			alias: {
 				"@": resolve("src/main"),
@@ -27,9 +23,6 @@ export default defineConfig({
 		plugins: [externalizeDepsPlugin()],
 	},
 	renderer: defineViteConfig(() => ({
-		define: {
-			"import.meta.env.LOCAL_API_KEY": JSON.stringify(process.env.MAIN_VITE_LOCAL_API_KEY),
-		},
 		server: {
 			port: 2214,
 		},

@@ -1,10 +1,12 @@
 import { execFile, spawn } from "child_process";
-import fs, { rmdir } from "fs";
+import fs from "fs";
+import fsp from "node:fs/promises";
 import https from "https";
 import path from "path";
 import {
 	addValue,
 	getAllValues,
+	getValue,
 	removeKey,
 	removeValue,
 } from "@/server/scripts/dependencies/environment";
@@ -16,6 +18,15 @@ const depName = "cuda";
 const cudaVersion = "12.1";
 const expectedWindowsPath = `C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v${cudaVersion}`;
 const expectedLinuxPath = `/usr/local/cuda-${cudaVersion}`;
+const ownershipManifestName = "cuda-ownership.json";
+
+interface CudaOwnershipManifest {
+	version: 1;
+	installationPath: string;
+	platform: string;
+	cudaVersion: string;
+	createdAt: string;
+}
 
 function getCudaUrl(platform: string, arch: string): string | undefined {
 	if (platform === "windows" && arch === "amd64") {
@@ -81,6 +92,9 @@ export async function install(
 	const tempDir = path.join(binFolder, "temp");
 	const platform = getOS();
 	const arch = getArch();
+	const managedPath =
+		platform === "windows" ? expectedWindowsPath : expectedLinuxPath;
+	const pathExistedBeforeInstall = fs.existsSync(managedPath);
 
 	if (signal?.aborted) return { success: false };
 
@@ -306,10 +320,25 @@ export async function install(
 		return { success: false };
 	}
 
+	if (!pathExistedBeforeInstall && fs.existsSync(managedPath)) {
+		const manifest: CudaOwnershipManifest = {
+			version: 1,
+			installationPath: managedPath,
+			platform,
+			cudaVersion,
+			createdAt: new Date().toISOString(),
+		};
+		await fsp.writeFile(
+			path.join(binFolder, ownershipManifestName),
+			JSON.stringify(manifest, null, 2),
+			{ encoding: "utf8", flag: "wx", mode: 0o600 },
+		);
+	}
+
 	return { success: true };
 }
 
-export async function uninstall(_binFolder: string): Promise<void> {
+export async function uninstall(binFolder: string): Promise<void> {
 	const platform = getOS();
 	let cudaPath: string | undefined;
 
@@ -322,23 +351,44 @@ export async function uninstall(_binFolder: string): Promise<void> {
 		return;
 	}
 
+	const manifestPath = path.join(binFolder, ownershipManifestName);
+	let manifest: CudaOwnershipManifest;
+	try {
+		manifest = JSON.parse(await fsp.readFile(manifestPath, "utf8"));
+	} catch {
+		logger.warn(
+			"Refusing to remove CUDA: no valid Dione ownership manifest exists.",
+		);
+		return;
+	}
+	if (
+		manifest.version !== 1 ||
+		manifest.platform !== platform ||
+		manifest.cudaVersion !== cudaVersion ||
+		path.resolve(manifest.installationPath) !== path.resolve(cudaPath)
+	) {
+		logger.warn(
+			"Refusing to remove CUDA: ownership manifest does not match this installation.",
+		);
+		return;
+	}
+
 	if (fs.existsSync(cudaPath)) {
 		logger.warn(`Removing CUDA installation directory: ${cudaPath}`);
-		await rmdir(cudaPath, { recursive: true }, (err) => {
-			if (err) {
-				logger.error(`Error removing CUDA directory:`, err);
-			} else {
-				logger.info(`CUDA directory removed successfully.`);
-			}
-		});
+		await fsp.rm(cudaPath, { recursive: true, force: true });
+		logger.info("CUDA directory removed successfully.");
 		if (platform === "windows") {
 			removeValue(expectedWindowsPath, "PATH");
-			removeKey("CUDA_HOME");
+			removeValue(path.join(expectedWindowsPath, "bin"), "PATH");
+			if (getValue("CUDA_HOME") === expectedWindowsPath) removeKey("CUDA_HOME");
+			if (getValue("CUDA_PATH") === expectedWindowsPath) removeKey("CUDA_PATH");
 		} else if (platform === "linux") {
 			removeValue(path.join(expectedLinuxPath, "bin"), "PATH");
-			removeKey("CUDA_HOME");
+			if (getValue("CUDA_HOME") === expectedLinuxPath) removeKey("CUDA_HOME");
+			if (getValue("CUDA_PATH") === expectedLinuxPath) removeKey("CUDA_PATH");
 		}
 
+		await fsp.rm(manifestPath, { force: true });
 		logger.info(`Environment variables for CUDA ${cudaVersion} removed.`);
 	}
 }

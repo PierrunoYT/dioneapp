@@ -2,6 +2,11 @@ import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { sendDiscordReport } from "@/utils/discord-webhook";
+import {
+	isConfig,
+	readStoredJson,
+	type StoredConfig,
+} from "@/utils/local-storage";
 import { openLink } from "@/utils/open-link";
 import { CheckCircle, Loader2, TvMinimal, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -13,7 +18,7 @@ export default function ErrorPage({ error }: { error?: Error }) {
 	const [reportStatus, setReportStatus] = useState<
 		"idle" | "pending" | "success" | "error" | "dev-mode"
 	>("idle");
-	const settings = JSON.parse(localStorage.getItem("config") || "{}");
+	const settings = readStoredJson<StoredConfig>("config", () => ({}), isConfig);
 
 	useEffect(() => {
 		if (error && settings.sendAnonymousReports) {

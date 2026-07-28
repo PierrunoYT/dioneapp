@@ -3,10 +3,13 @@ import logger from "@/server/utils/logger";
 import express from "express";
 
 const router = express.Router();
-router.use(express.json());
+router.use(express.json({ limit: "32kb" }));
 
 router.post("/", async (req, res) => {
-	const { type, script, ai } = req.body;
+	const { type, script, ai, details } = req.body ?? {};
+	if (!["script", "ai", "user", "error"].includes(type)) {
+		return res.status(400).json({ error: "Invalid report type" });
+	}
 
 	if (!supabase) {
 		logger.error("Supabase client is not initialized");
@@ -14,22 +17,33 @@ router.post("/", async (req, res) => {
 	}
 
 	try {
-		let report: any;
-		report = {
-			type,
-		};
+		const report: Record<string, string> = { type };
 
 		if (type === "script") {
-			report.appid = script.appid;
-			report.details = script.details;
-
-			logger.info(
-				`Reporting app with id ${report.appid}, details: ${report.details}`,
-			);
+			if (
+				typeof script?.appid !== "string" ||
+				typeof script?.details !== "string"
+			) {
+				return res.status(400).json({ error: "Invalid script report" });
+			}
+			report.appid = script.appid.slice(0, 256);
+			report.details = script.details.slice(0, 16_000);
 		} else if (type === "ai") {
-			report.model = ai.model;
-			report.input = ai.input;
-			report.output = ai.output;
+			if (
+				typeof ai?.model !== "string" ||
+				typeof ai?.input !== "string" ||
+				typeof ai?.output !== "string"
+			) {
+				return res.status(400).json({ error: "Invalid AI report" });
+			}
+			report.model = ai.model.slice(0, 256);
+			report.input = ai.input.slice(0, 16_000);
+			report.output = ai.output.slice(0, 16_000);
+		} else {
+			if (typeof details !== "string" || details.length === 0) {
+				return res.status(400).json({ error: "Invalid report details" });
+			}
+			report.details = details.slice(0, 16_000);
 		}
 
 		const { error } = await supabase.from("reports").insert(report);
@@ -39,8 +53,8 @@ router.post("/", async (req, res) => {
 			);
 			res.status(500).send(error);
 		} else {
-			res.status(200).send("success");
-			logger.info(`Reported send successfully`);
+			res.status(200).json({ success: true });
+			logger.info(`Report stored type=${type}`);
 		}
 	} catch (error: any) {
 		logger.error(

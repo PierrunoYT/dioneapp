@@ -6,7 +6,9 @@ import {
 } from "@/server/scripts/utils/paths";
 import logger from "@/server/utils/logger";
 
-export default async function getAllScripts() {
+export default async function getAllScripts(
+	maxEntries = Number.POSITIVE_INFINITY,
+) {
 	let scriptsDir: string;
 	try {
 		scriptsDir = await ensureAppsRootExists();
@@ -32,6 +34,7 @@ export default async function getAllScripts() {
 
 				if (scriptConfig.length > 0) {
 					validApps.push(dirent.name);
+					if (validApps.length >= maxEntries) break;
 				}
 			}
 		}

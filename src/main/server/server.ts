@@ -5,7 +5,6 @@ import { start as setupSocket } from "@/socket/socket";
 import cors from "cors";
 import express from "express";
 import type { Server as SocketIOServer } from "socket.io";
-import { getAvailablePort } from "./utils/get-port";
 
 let httpServer: http.Server | null = null;
 let io: SocketIOServer | null = null;
@@ -15,19 +14,38 @@ export const start = async (): Promise<number> => {
 	const app = express();
 	app.use(cors());
 
-	const port = await getAvailablePort();
 	const localServer = http.createServer(app);
 
 	try {
 		io = setupSocket(localServer);
 		setupRoutes(app, io);
 
-		return new Promise((resolve) => {
-			localServer.listen(port, "127.0.0.1", () => {
-				logger.info(`Backend server started on http://localhost:${port}`);
+		return new Promise((resolve, reject) => {
+			const onError = (error: Error) => {
+				localServer.removeListener("listening", onListening);
+				io?.close();
+				io = null;
+				logger.error("Error starting server:", error);
+				reject(error);
+			};
+			const onListening = () => {
+				localServer.removeListener("error", onError);
+				const address = localServer.address();
+				if (!address || typeof address === "string") {
+					localServer.close();
+					reject(new Error("Backend server did not receive a TCP port"));
+					return;
+				}
+				logger.info(
+					`Backend server started on http://localhost:${address.port}`,
+				);
 				httpServer = localServer;
-				resolve(port);
-			});
+				resolve(address.port);
+			};
+
+			localServer.once("error", onError);
+			localServer.once("listening", onListening);
+			localServer.listen(0, "127.0.0.1");
 		});
 	} catch (error) {
 		logger.error("Error starting server:", error);

@@ -1,7 +1,93 @@
 import fs from "fs";
+import path from "node:path";
 import git from "isomorphic-git";
-import http from "isomorphic-git/http/node";
+import type {
+	GitHttpRequest,
+	GitHttpResponse,
+	HttpClient,
+} from "isomorphic-git";
 import type { Server } from "socket.io";
+
+const ALLOWED_GIT_HOSTS = new Set(["github.com"]);
+
+function validateGitUrl(value: string): URL {
+	const parsed = new URL(value);
+	if (
+		parsed.protocol !== "https:" ||
+		parsed.username ||
+		parsed.password ||
+		parsed.port ||
+		!ALLOWED_GIT_HOSTS.has(parsed.hostname.toLowerCase())
+	) {
+		throw new Error("Git request is not an approved public HTTPS URL");
+	}
+	return parsed;
+}
+
+async function collectBody(
+	body: GitHttpRequest["body"],
+): Promise<Uint8Array | undefined> {
+	if (!body) return undefined;
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	for await (const chunk of body) {
+		chunks.push(chunk);
+		length += chunk.byteLength;
+	}
+	const result = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return result;
+}
+
+const restrictedHttp: HttpClient = {
+	request: async (request): Promise<GitHttpResponse> => {
+		let currentUrl = validateGitUrl(request.url);
+		let method = request.method ?? "GET";
+		let body = await collectBody(request.body);
+
+		for (let redirects = 0; redirects <= 5; redirects++) {
+			const response = await fetch(currentUrl, {
+				method,
+				headers: request.headers,
+				body: body as BodyInit | undefined,
+				redirect: "manual",
+			});
+			if ([301, 302, 303, 307, 308].includes(response.status)) {
+				const location = response.headers.get("location");
+				await response.body?.cancel();
+				if (!location || redirects === 5) {
+					throw new Error("Git request exceeded the redirect limit");
+				}
+				currentUrl = validateGitUrl(new URL(location, currentUrl).href);
+				if (
+					response.status === 303 ||
+					((response.status === 301 || response.status === 302) &&
+						method === "POST")
+				) {
+					method = "GET";
+					body = undefined;
+				}
+				continue;
+			}
+
+			return {
+				url: currentUrl.href,
+				method,
+				statusCode: response.status,
+				statusMessage: response.statusText,
+				headers: Object.fromEntries(response.headers.entries()),
+				body: response.body
+					? (response.body as unknown as AsyncIterableIterator<Uint8Array>)
+					: undefined,
+			};
+		}
+		throw new Error("Git request exceeded the redirect limit");
+	},
+};
 
 export async function useGit(
 	command: string,
@@ -9,25 +95,85 @@ export async function useGit(
 	io: Server,
 	id: string,
 ) {
-	const isCloneCommand = command.includes("git clone");
+	const isCloneCommand = /^git\s+clone(?:\s|$)/.test(command.trim());
 
 	if (isCloneCommand) {
-		const args = command.replace("git clone", "").trim().split(/\s+/);
+		// Dione application manifests are currently hosted on GitHub. Keep this
+		// list deliberately explicit; add a host only after reviewing its redirect
+		// behavior and confirming that Dione actually distributes apps from it.
+		const args = command.trim().split(/\s+/).slice(2);
 		let url: string | undefined;
 		let folder: string | undefined;
 		let branch: string | undefined;
 
-		// search for url
-		const urlRegex = /^(https?:\/\/|git@)[^\s]+(?:\.git)?\/?$/;
 		for (let i = 0; i < args.length; i++) {
-			if (urlRegex.test(args[i])) {
-				url = args[i];
+			if (args[i].startsWith("https://")) {
+				const parsed = validateGitUrl(args[i]);
+				url = parsed.href;
 				// the folder is the next argument (if it exists and is not a flag)
 				if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
 					folder = args[i + 1];
 				}
 				break;
 			}
+		}
+		if (!url) throw new Error("A valid HTTPS Git clone URL is required");
+		if (
+			folder &&
+			(folder.startsWith("-") ||
+				path.isAbsolute(folder) ||
+				path.basename(folder) !== folder)
+		) {
+			throw new Error("Invalid Git clone destination");
+		}
+
+		const root = path.resolve(workingDir);
+		const repositoryName = path.posix
+			.basename(new URL(url).pathname)
+			.replace(/\.git$/, "");
+		const destination = path.resolve(root, folder || repositoryName);
+		const relativeDestination = path.relative(root, destination);
+		if (
+			!repositoryName ||
+			relativeDestination === "" ||
+			relativeDestination === ".." ||
+			relativeDestination.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relativeDestination)
+		) {
+			throw new Error("Git clone destination escapes the working directory");
+		}
+		const canonicalRoot = await fs.promises.realpath(root);
+		const canonicalParent = await fs.promises.realpath(
+			path.dirname(destination),
+		);
+		const canonicalRelative = path.relative(canonicalRoot, canonicalParent);
+		if (
+			canonicalRelative === ".." ||
+			canonicalRelative.startsWith(`..${path.sep}`)
+		) {
+			throw new Error(
+				"Git clone destination parent escapes the working directory",
+			);
+		}
+		try {
+			await fs.promises.mkdir(destination);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+				throw new Error("Git clone destination already exists");
+			}
+			throw error;
+		}
+		const reservedDestination = await fs.promises.realpath(destination);
+		const reservedRelative = path.relative(canonicalRoot, reservedDestination);
+		if (
+			reservedRelative === ".." ||
+			reservedRelative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(reservedRelative)
+		) {
+			await fs.promises.rm(destination, { recursive: true, force: true });
+			throw new Error(
+				"Reserved Git clone destination escaped the working directory",
+			);
 		}
 
 		// search for branch
@@ -48,13 +194,12 @@ export async function useGit(
 		let refToTry = branch ? branch : "main";
 		let result = false;
 		let lastProgressEmit = 0;
-
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
 				await git.clone({
 					fs,
-					http,
-					dir: `${workingDir}/${folder}`,
+					http: restrictedHttp,
+					dir: destination,
 					url: url!,
 					singleBranch: true,
 					ref: refToTry,
@@ -95,6 +240,8 @@ export async function useGit(
 						content: `\nBranch 'main' not found, trying 'master'...`,
 					});
 					refToTry = "master";
+					await fs.promises.rm(destination, { recursive: true, force: true });
+					await fs.promises.mkdir(destination);
 					continue;
 				} else {
 					break;
@@ -103,6 +250,7 @@ export async function useGit(
 		}
 
 		if (!result) {
+			await fs.promises.rm(destination, { recursive: true, force: true });
 			io.to(id).emit("installUpdate", {
 				type: "error",
 				content: `\nFailed to clone repository: ${lastError?.message || lastError}`,

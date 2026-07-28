@@ -1,6 +1,5 @@
 import { Button, Card, Modal, ModalBody } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
-import { getBackendPort } from "@/utils/api";
 import { Check, Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
@@ -8,7 +7,6 @@ import { useEffect, useState } from "react";
 interface NetworkShareModalProps {
 	isOpen: boolean;
 	onClose: () => void;
-	targetPort?: number;
 	tunnelInfo: TunnelInfo | null;
 	setTunnelInfo: React.Dispatch<React.SetStateAction<any | null>>;
 }
@@ -19,14 +17,12 @@ interface TunnelInfo {
 	url: string;
 	type: "localtunnel" | "cloudflare";
 	status: "active" | "connecting" | "error";
-	password?: string;
 	shortUrl?: string;
 }
 
 export default function NetworkShareModal({
 	isOpen,
 	onClose,
-	targetPort,
 	tunnelInfo,
 	setTunnelInfo,
 }: NetworkShareModalProps) {
@@ -36,7 +32,6 @@ export default function NetworkShareModal({
 	const [copied, setCopied] = useState(false);
 	const [initialLoading, setInitialLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
-	const [port, setPort] = useState<number | null>(null);
 	const [startingTunnel, setStartingTunnel] = useState(false);
 
 	useEffect(() => {
@@ -44,19 +39,13 @@ export default function NetworkShareModal({
 			loadNetworkInfo();
 			checkActiveTunnel();
 		}
-	}, [targetPort, isOpen]);
+	}, [isOpen]);
 
 	const loadNetworkInfo = async () => {
 		try {
 			setError(null);
 
-			const currentPort = targetPort || (await getBackendPort());
-			setPort(currentPort);
-
-			const networkInfo = await window.electron.ipcRenderer.invoke(
-				"get-network-address",
-				currentPort,
-			);
+			const networkInfo = await window.api.getNetworkAddress();
 
 			if (networkInfo) {
 				setLocalUrl(networkInfo.url);
@@ -90,10 +79,7 @@ export default function NetworkShareModal({
 			setStartingTunnel(true);
 			setError(null);
 
-			const tunnel = await window.api.startTunnel(
-				"localtunnel",
-				port || undefined,
-			);
+			const tunnel = await window.api.startTunnel();
 
 			try {
 				const shortUrl = await window.api.shortenUrl(tunnel.url);
@@ -314,39 +300,6 @@ export default function NetworkShareModal({
 												{t("networkShare.public.urlDescription")}
 											</p>
 										</div>{" "}
-										{tunnelInfo.password && (
-											<Card
-												variant="warning"
-												padding="md"
-												className="space-y-2"
-											>
-												<p className="text-purple-200 text-xs font-medium">
-													{t("networkShare.public.passwordTitle")}
-												</p>
-												<div className="flex items-center gap-2 bg-black/30 rounded-xl px-2 py-1.5 group">
-													<code className="flex-1 text-purple-300 font-mono text-xs blur-sm group-hover:blur-none transition-all duration-200 select-none group-hover:select-text">
-														{tunnelInfo.password}
-													</code>
-													<Button
-														variant="ghost"
-														size="sm"
-														onClick={() => {
-															window.copyToClipboard.writeText(
-																tunnelInfo.password || "",
-															);
-															setCopied(true);
-															setTimeout(() => setCopied(false), 2000);
-														}}
-														className="p-1"
-													>
-														<Copy className="w-3.5 h-3.5 text-purple-300" />
-													</Button>
-												</div>
-												<p className="text-purple-300/60 text-xs">
-													{t("networkShare.public.visitorMessage")}
-												</p>
-											</Card>
-										)}
 										<div className="flex items-center justify-end pt-1">
 											<Button
 												variant="danger"

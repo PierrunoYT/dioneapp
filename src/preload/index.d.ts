@@ -4,7 +4,6 @@ interface TunnelInfo {
 	url: string;
 	type: "localtunnel";
 	status: "active" | "connecting" | "error";
-	password?: string;
 	shortUrl?: string;
 }
 
@@ -14,12 +13,12 @@ interface CustomAPI {
 		cpu: number;
 		ram: { percent: number; usedGB: number };
 	}>;
-	getNetworkAddress: (port?: number) => Promise<{
+	getNetworkAddress: () => Promise<{
 		ip: string;
 		port: number;
 		url: string;
 	} | null>;
-	startTunnel: (type: "localtunnel", port?: number) => Promise<TunnelInfo>;
+	startTunnel: () => Promise<TunnelInfo>;
 	stopTunnel: () => Promise<boolean>;
 	getCurrentTunnel: () => Promise<TunnelInfo | null>;
 	isTunnelActive: () => Promise<boolean>;

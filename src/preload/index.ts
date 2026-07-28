@@ -13,11 +13,11 @@ const api = {
 	getSystemUsage: () => {
 		return electronAPI.ipcRenderer.invoke("get-system-usage");
 	},
-	getNetworkAddress: (port?: number) => {
-		return electronAPI.ipcRenderer.invoke("get-network-address", port);
+	getNetworkAddress: () => {
+		return electronAPI.ipcRenderer.invoke("get-network-address");
 	},
-	startTunnel: (type: "localtunnel" | "cloudflare", port?: number) => {
-		return electronAPI.ipcRenderer.invoke("start-tunnel", type, port);
+	startTunnel: () => {
+		return electronAPI.ipcRenderer.invoke("start-tunnel");
 	},
 	stopTunnel: () => {
 		return electronAPI.ipcRenderer.invoke("stop-tunnel");

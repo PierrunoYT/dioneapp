@@ -190,9 +190,8 @@ export interface SetupSocketProps {
 
 export interface AIContextType {
 	messages: { role: string; content: string }[];
-	setMessages: (messages: { role: string; content: string }[]) => void;
+	clearChat: () => void;
 	messageLoading: boolean;
-	setMessageLoading: (loading: boolean) => void;
 	redirecting: boolean;
 	setRedirecting: (redirecting: boolean) => void;
 	usingTool: { name: string; message: string };

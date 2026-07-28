@@ -4,25 +4,67 @@ import getAllScripts from "@/server/scripts/installed";
 import { resolveScriptPaths } from "@/server/scripts/utils/paths";
 import logger from "@/server/utils/logger";
 
-export function getTools(io: any) {
+const MAX_TOOL_FILE_BYTES = 32 * 1024;
+
+function ensureNotAborted(signal?: AbortSignal) {
+	if (signal?.aborted) throw new Error("Chat request aborted");
+}
+
+function limitToolArray(values: unknown[]): unknown[] {
+	const limited: unknown[] = [];
+	let bytes = 2;
+	for (const value of values) {
+		const serialized = JSON.stringify(value);
+		if (Buffer.byteLength(serialized) + bytes > MAX_TOOL_FILE_BYTES) break;
+		limited.push(value);
+		bytes += Buffer.byteLength(serialized) + 1;
+	}
+	return limited;
+}
+
+async function readBoundedText(response: Response): Promise<string> {
+	if (!response.body) return "";
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = "";
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) return text + decoder.decode();
+		bytes += value.byteLength;
+		if (bytes > MAX_TOOL_FILE_BYTES) {
+			await reader.cancel();
+			throw new Error("Remote tool response exceeded size limit");
+		}
+		text += decoder.decode(value, { stream: true });
+	}
+}
+
+export function getTools(io: any, signal?: AbortSignal) {
 	return {
 		read_file: async ({ project, file }) => {
-			return read_file(project, file, io);
+			return read_file(project, file, io, signal);
 		},
 		get_installed_apps: async () => {
-			return get_installed_apps(io);
+			return get_installed_apps(io, signal);
 		},
 		get_latest_apps: async () => {
-			return get_latest_apps(io);
+			return get_latest_apps(io, signal);
 		},
 		navigate_to_app: async ({ name, action }) => {
-			return navigate_to_app(io, name, action);
+			return navigate_to_app(io, name, action, signal);
 		},
 	};
 }
 
-export function read_file(project: string, file: string, io: any) {
+export function read_file(
+	project: string,
+	file: string,
+	io: any,
+	signal?: AbortSignal,
+) {
 	try {
+		ensureNotAborted(signal);
 		io.emit("ollama:using-tool", {
 			name: "read_file",
 			message: "Reading file",
@@ -31,11 +73,22 @@ export function read_file(project: string, file: string, io: any) {
 			return "Error: Missing 'project' or 'file' parameter.";
 		}
 
-		logger.ai(`Reading file: ${file}`);
+		logger.ai("AI tool read_file outcome=started");
 		const dir = resolveScriptPaths(project).workingDir;
-		let pathToRead = path.join(dir, file);
+		let pathToRead = path.resolve(dir, file);
+		const relative = path.relative(path.resolve(dir), pathToRead);
+		if (
+			relative === ".." ||
+			relative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relative)
+		) {
+			return "Error: Requested file escapes the project directory.";
+		}
 
 		if (fs.existsSync(pathToRead)) {
+			if (fs.statSync(pathToRead).size > MAX_TOOL_FILE_BYTES) {
+				return "Error: File exceeds the AI tool size limit.";
+			}
 			return fs.readFileSync(pathToRead, "utf8");
 		}
 
@@ -47,32 +100,39 @@ export function read_file(project: string, file: string, io: any) {
 				(e.isDirectory() && fs.existsSync(p))
 			) {
 				pathToRead = p;
-				logger.ai(`Found file: ${pathToRead}`);
+				if (fs.statSync(pathToRead).size > MAX_TOOL_FILE_BYTES) {
+					return "Error: File exceeds the AI tool size limit.";
+				}
+				logger.ai("AI tool read_file outcome=success");
 				return fs.readFileSync(pathToRead, "utf8");
 			}
 		}
 
-		logger.ai(`File not found: ${file} in ${dir}`);
+		logger.ai("AI tool read_file outcome=not_found");
 		return `Error: File "${file}" not found in project "${project}".`;
 	} catch (err: any) {
-		const errorMsg = `Error reading file "${file}": ${err.message || err}`;
-		logger.ai(errorMsg);
-		return errorMsg;
+		logger.ai("AI tool read_file outcome=error");
+		return "Error reading requested file.";
 	}
 }
 
-export async function get_installed_apps(io: any) {
+export async function get_installed_apps(io: any, signal?: AbortSignal) {
+	ensureNotAborted(signal);
 	io.emit("ollama:using-tool", {
 		name: "get_installed_apps",
 		message: "Getting installed apps",
 	});
 	logger.ai("Getting installed apps...");
-	const result = await getAllScripts();
+	const result = await getAllScripts(256);
+	ensureNotAborted(signal);
 	logger.ai(`Installed apps: ${result.length}`);
-	return result;
+	return Buffer.byteLength(result) <= MAX_TOOL_FILE_BYTES
+		? result
+		: JSON.stringify({ error: "Installed app list exceeded size limit" });
 }
 
-export async function get_latest_apps(io: any) {
+export async function get_latest_apps(io: any, signal?: AbortSignal) {
+	ensureNotAborted(signal);
 	io.emit("ollama:using-tool", {
 		name: "get_latest_apps",
 		message: "Getting latest apps",
@@ -82,11 +142,12 @@ export async function get_latest_apps(io: any) {
 			const response = await fetch(
 				`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?order_type=desc&page=${page}&limit=${limit}&order_by=created_at`,
 				{
+					signal,
 					headers: {
-						...(process.env.API_KEY
+						...(process.env.DIONE_API_KEY
 							? {
-								Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-							}
+									Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+								}
 							: {}),
 					},
 				},
@@ -103,9 +164,10 @@ export async function get_latest_apps(io: any) {
 			try {
 				const contentType = response.headers.get("content-type") || "";
 				if (contentType.includes("application/json")) {
-					data = await response.json();
+					const text = await readBoundedText(response);
+					data = JSON.parse(text);
 				} else {
-					const text = await response.text();
+					const text = await readBoundedText(response);
 					logger.warn(
 						`Dione API returned non-JSON (${contentType || "unknown"}).`,
 					);
@@ -116,9 +178,7 @@ export async function get_latest_apps(io: any) {
 					}
 				}
 			} catch (e: any) {
-				logger.error(
-					`Failed to parse explore scripts response: ${e?.message || e}`,
-				);
+				logger.error("Failed to parse explore scripts response");
 				data = [];
 			}
 
@@ -131,20 +191,26 @@ export async function get_latest_apps(io: any) {
 				logo_url: script.logo_url || "no-logo",
 			}));
 
-			return scripts;
+			return limitToolArray(scripts);
 		} catch (error: any) {
-			logger.error(`Critical error: ${error.message}`);
+			logger.error("Latest apps fetch failed");
 			return "An unexpected error occurred";
 		}
 	}
 
 	logger.ai("Getting latest apps...");
 	const result = await getData(1, 5);
+	ensureNotAborted(signal);
 	logger.ai(`Latest apps: ${result.length}`);
 	return result;
 }
 
-export async function get_app_by_name(io: any, name: string) {
+export async function get_app_by_name(
+	io: any,
+	name: string,
+	signal?: AbortSignal,
+) {
+	ensureNotAborted(signal);
 	io.emit("ollama:using-tool", {
 		name: "get_app_by_name",
 		message: "Reading about an app",
@@ -152,16 +218,18 @@ export async function get_app_by_name(io: any, name: string) {
 	const response = await fetch(
 		`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?q=${name}&limit=1`,
 		{
+			signal,
 			headers: {
-				...(process.env.API_KEY
+				...(process.env.DIONE_API_KEY
 					? {
-						Authorization: `Bearer ${process.env.API_KEY || import.meta.env.MAIN_VITE_API_KEY}`,
-					}
+							Authorization: `Bearer ${process.env.DIONE_API_KEY}`,
+						}
 					: {}),
 			},
 		},
 	);
-	const data = await response.json();
+	const text = await readBoundedText(response);
+	const data = JSON.parse(text);
 	logger.ai(`Found app: ${data.length}`);
 	return data;
 }
@@ -170,13 +238,16 @@ export async function navigate_to_app(
 	io: any,
 	name: string,
 	action: "navigate" | "start" | "install",
+	signal?: AbortSignal,
 ) {
+	ensureNotAborted(signal);
 	io.emit("ollama:using-tool", {
 		name: "navigate_to_app",
 		message: "Navigating to an app",
 	});
-	logger.ai(`Navigating to app: ${name} with action ${action}`);
-	const app = await get_app_by_name(io, name);
+	logger.ai(`AI tool navigate_to_app action=${action}`);
+	const app = await get_app_by_name(io, name, signal);
+	ensureNotAborted(signal);
 	if (!app) {
 		return "App not found";
 	}

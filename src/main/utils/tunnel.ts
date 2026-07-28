@@ -8,7 +8,7 @@ import { machineIdSync } from "node-machine-id";
 let activeTunnel: Tunnel | null = null;
 let currentTunnelUrl: string | null = null;
 let currentShortUrl: string | null = null;
-let currentTunnelPassword: string | undefined = undefined;
+let lifecycle = Promise.resolve();
 
 const urlCreationCache = new Map<string, number[]>();
 
@@ -16,99 +16,79 @@ export interface TunnelInfo {
 	url: string;
 	type: "localtunnel";
 	status: "active" | "connecting" | "error";
-	password?: string;
 	shortUrl?: string;
 }
 
-async function getLocaltunnelPassword(): Promise<string | undefined> {
-	try {
-		const response = await fetch("https://loca.lt/mytunnelpassword");
-		if (response.ok) {
-			const password = await response.text();
-			return password.trim();
-		}
-	} catch (error) {
-		logger.error("Failed to fetch Localtunnel password:", error);
-	}
-	return undefined;
+function serialize<T>(operation: () => Promise<T>): Promise<T> {
+	const result = lifecycle.then(operation, operation);
+	lifecycle = result.then(
+		() => undefined,
+		() => undefined,
+	);
+	return result;
 }
 
-export async function startLocaltunnel(port: number): Promise<TunnelInfo> {
-	try {
-		// Close any existing tunnel first
-		await stopTunnel();
+function stopActiveTunnel(): void {
+	const tunnel = activeTunnel;
+	activeTunnel = null;
+	currentTunnelUrl = null;
+	currentShortUrl = null;
+	tunnel?.close();
+}
 
-		logger.info(`Starting Localtunnel on port ${port}...`);
+export function startLocaltunnel(port: number): Promise<TunnelInfo> {
+	return serialize(async () => {
+		try {
+			stopActiveTunnel();
+			logger.info(`Starting Localtunnel on port ${port}...`);
+			const tunnel = await localtunnel({ port });
 
-		// Fetch the tunnel password
-		const password = await getLocaltunnelPassword();
-		if (password) {
-			logger.info(`Localtunnel password: ${password}`);
-		}
-
-		const tunnel = await localtunnel({ port });
-
-		activeTunnel = tunnel;
-		currentTunnelUrl = tunnel.url;
-		currentShortUrl = null;
-		currentTunnelPassword = password;
-
-		tunnel.on("close", () => {
-			logger.info("Localtunnel closed");
-			activeTunnel = null;
-			currentTunnelUrl = null;
+			activeTunnel = tunnel;
+			currentTunnelUrl = tunnel.url;
 			currentShortUrl = null;
-			currentTunnelPassword = undefined;
-		});
 
-		tunnel.on("error", (err) => {
-			logger.error("Localtunnel error:", err);
-		});
+			tunnel.on("close", () => {
+				logger.info("Localtunnel closed");
+				if (activeTunnel !== tunnel) return;
+				activeTunnel = null;
+				currentTunnelUrl = null;
+				currentShortUrl = null;
+			});
+			tunnel.on("error", (error) => {
+				logger.error("Localtunnel error:", error);
+			});
 
-		logger.info(`Localtunnel started: ${tunnel.url}`);
-
-		return {
-			url: tunnel.url,
-			type: "localtunnel",
-			status: "active",
-			password,
-		};
-	} catch (error) {
-		logger.error("Failed to start Localtunnel:", error);
-		throw new Error(`Failed to start Localtunnel: ${error}`);
-	}
+			logger.info(`Localtunnel started: ${tunnel.url}`);
+			return {
+				url: tunnel.url,
+				type: "localtunnel",
+				status: "active",
+			};
+		} catch (error) {
+			logger.error("Failed to start Localtunnel:", error);
+			throw new Error(`Failed to start Localtunnel: ${error}`);
+		}
+	});
 }
 
-export async function stopTunnel(): Promise<void> {
-	try {
-		if (activeTunnel) {
-			logger.info("Closing Localtunnel...");
-			activeTunnel.close();
-			activeTunnel = null;
-		}
-
-		currentTunnelUrl = null;
-		currentShortUrl = null;
-		currentTunnelPassword = undefined;
-
-		logger.info("Tunnel stopped");
-	} catch (error) {
-		logger.error("Error stopping tunnel:", error);
-		throw error;
-	}
+export function stopTunnel(): Promise<void> {
+	return serialize(async () => {
+		logger.info(
+			activeTunnel ? "Closing Localtunnel..." : "Tunnel already stopped",
+		);
+		stopActiveTunnel();
+	});
 }
 
 export function getCurrentTunnel(): TunnelInfo | null {
-	if (currentTunnelUrl) {
-		return {
-			url: currentTunnelUrl,
-			type: "localtunnel",
-			status: "active",
-			password: currentTunnelPassword,
-			shortUrl: currentShortUrl || undefined,
-		};
-	}
-	return null;
+	return currentTunnelUrl
+		? {
+				url: currentTunnelUrl,
+				type: "localtunnel",
+				status: "active",
+				shortUrl: currentShortUrl || undefined,
+			}
+		: null;
 }
 
 export function isTunnelActive(): boolean {
@@ -118,23 +98,16 @@ export function isTunnelActive(): boolean {
 function isValidUrl(url: string): boolean {
 	try {
 		const parsed = new URL(url);
-
-		if (!["http:", "https:"].includes(parsed.protocol)) {
-			return false;
-		}
+		if (!["http:", "https:"].includes(parsed.protocol)) return false;
 
 		const hostname = parsed.hostname.toLowerCase();
-		if (
+		return !(
 			hostname === "localhost" ||
 			hostname.startsWith("127.") ||
 			hostname.startsWith("192.168.") ||
 			hostname.startsWith("10.") ||
 			hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)
-		) {
-			return false;
-		}
-
-		return true;
+		);
 	} catch {
 		return false;
 	}
@@ -146,7 +119,6 @@ export async function shortenUrl(url: string): Promise<string | null> {
 			logger.warn("Supabase not configured, skipping URL shortening");
 			return null;
 		}
-
 		if (!isValidUrl(url)) {
 			logger.warn("Invalid URL format or blocked URL");
 			return null;
@@ -154,61 +126,45 @@ export async function shortenUrl(url: string): Promise<string | null> {
 
 		const machineId = machineIdSync();
 		const now = Date.now();
-		const oneHour = 60 * 60 * 1000;
-
-		const timestamps = urlCreationCache.get(machineId) || [];
-		const recentTimestamps = timestamps.filter((t) => now - t < oneHour);
-
+		const recentTimestamps = (urlCreationCache.get(machineId) || []).filter(
+			(timestamp) => now - timestamp < 60 * 60 * 1000,
+		);
 		if (recentTimestamps.length >= 10) {
 			logger.warn("Rate limit exceeded for URL shortening (max 10 per hour)");
 			return null;
 		}
-
 		recentTimestamps.push(now);
 		urlCreationCache.set(machineId, recentTimestamps);
 
-		let attempts = 0;
-		const maxAttempts = 5;
-
-		while (attempts < maxAttempts) {
+		for (let attempts = 0; attempts < 5; attempts++) {
 			const shortId = nanoid(10);
-
 			const { data: existing } = await supabase
 				.from("shared_urls")
 				.select("id")
 				.eq("id", shortId)
 				.single();
-
-			if (!existing) {
-				const { data, error } = await supabase
-					.from("shared_urls")
-					.insert({
-						id: shortId,
-						long_url: url,
-						created_at: new Date().toISOString(),
-					})
-					.select()
-					.single();
-
-				if (error) {
-					logger.error("Failed to create shortened URL:", error);
-					return null;
-				}
-
-				const shortUrl = `https://getdione-app.deeivihh.workers.dev/share/${data.id}`;
-
-				if (url === currentTunnelUrl) {
-					currentShortUrl = shortUrl;
-				}
-
-				logger.info(`Created shortened URL: ${data.id}`);
-				return shortUrl;
+			if (existing) {
+				logger.warn(`ID collision detected, retrying... (${attempts + 1}/5)`);
+				continue;
 			}
 
-			attempts++;
-			logger.warn(
-				`ID collision detected (${shortId}), retrying... (${attempts}/${maxAttempts})`,
-			);
+			const { data, error } = await supabase
+				.from("shared_urls")
+				.insert({
+					id: shortId,
+					long_url: url,
+					created_at: new Date().toISOString(),
+				})
+				.select()
+				.single();
+			if (error) {
+				logger.error("Failed to create shortened URL:", error);
+				return null;
+			}
+			const shortUrl = `https://getdione-app.deeivihh.workers.dev/share/${data.id}`;
+			if (url === currentTunnelUrl) currentShortUrl = shortUrl;
+			logger.info(`Created shortened URL: ${data.id}`);
+			return shortUrl;
 		}
 
 		logger.error(

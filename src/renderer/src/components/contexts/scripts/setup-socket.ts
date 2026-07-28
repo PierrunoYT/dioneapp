@@ -1,6 +1,11 @@
 import type { SetupSocketProps } from "@/components/contexts/types/context-types";
 import successSound from "@/components/features/first-time/sounds/success.mp3";
 import { sendDiscordReport } from "@/utils/discord-webhook";
+import {
+	isConfig,
+	readStoredJson,
+	type StoredConfig,
+} from "@/utils/local-storage";
 import { type Socket, io as clientIO } from "socket.io-client";
 
 export function setupSocket({
@@ -32,7 +37,7 @@ export function setupSocket({
 		return socketsRef.current[appId].socket;
 	}
 	const socket = clientIO(`http://localhost:${port}`);
-	const settings = JSON.parse(localStorage.getItem("config") || "{}");
+	const settings = readStoredJson<StoredConfig>("config", () => ({}), isConfig);
 
 	// progress tracking state per socket/app
 	let structuredRunActive = false;

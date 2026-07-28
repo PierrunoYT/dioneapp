@@ -1,4 +1,3 @@
-import VariablesModal from "@/components/features/modals/variables";
 import SettingsTabs, {
 	type TabType,
 } from "@/components/features/settings/settings-tabs";
@@ -12,7 +11,7 @@ import { apiFetch, apiJson, getBackendPort } from "@/utils/api";
 import { joinPath } from "@/utils/path";
 import { useToast } from "@/utils/use-toast";
 import { AnimatePresence } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useScriptsContext } from "../components/contexts/scripts-context";
 
@@ -38,8 +37,9 @@ export default function Settings() {
 	const [deleteCacheStatus, setDeleteCacheStatus] = useState<string | null>(
 		null,
 	);
-	const [variablesModal, setVariablesModal] = useState(false);
 	const [activeTab, setActiveTab] = useState<TabType>("applications");
+	const updateQueue = useRef(Promise.resolve());
+	const resetStarted = useRef(false);
 
 	useEffect(() => {
 		const fetchPort = async () => {
@@ -86,28 +86,33 @@ export default function Settings() {
 
 	// handle to update config
 	const handleUpdate = async (newConfig: Partial<any>) => {
-		if (!config) return;
-		console.log("new config:", JSON.stringify({ ...config, ...newConfig }));
-		try {
-			const updatedConfig = await apiJson<any>("/config/update", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ ...config, ...newConfig }),
-			});
+		if (!config || resetStarted.current) return;
+		updateQueue.current = updateQueue.current
+			.then(async () => {
+				if (resetStarted.current) return;
+				const previousConfig = config;
+				const updatedConfig = await apiJson<any>("/config", {
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(newConfig),
+				});
 
-			// update language in translation context if language changed
-			if (newConfig.language && newConfig.language !== config.language) {
-				setLanguage(newConfig.language);
-			}
+				// update language in translation context if language changed
+				if (
+					newConfig.language &&
+					newConfig.language !== previousConfig.language
+				) {
+					setLanguage(newConfig.language);
+				}
 
-			if (
-				updatedConfig.enableDesktopNotifications === true &&
-				updatedConfig.enableDesktopNotifications !==
-					config.enableDesktopNotifications
-			) {
-				const xml = `
+				if (
+					updatedConfig.enableDesktopNotifications === true &&
+					updatedConfig.enableDesktopNotifications !==
+						previousConfig.enableDesktopNotifications
+				) {
+					const xml = `
 				<toast launch="dione://action=navigate&amp;contentId=351" activationType="protocol">
 					<visual>
 						<binding template="ToastGeneric">
@@ -120,27 +125,30 @@ export default function Settings() {
 					</actions>
 				</toast>
 				`;
-				window.electron.ipcRenderer.invoke(
-					"notify",
-					t("notifications.enabled.title"),
-					t("notifications.enabled.description"),
-					xml as string,
-				);
-			}
+					window.electron.ipcRenderer.invoke(
+						"notify",
+						t("notifications.enabled.title"),
+						t("notifications.enabled.description"),
+						xml as string,
+					);
+				}
 
-			setConfig(updatedConfig);
-			// update local storage
-			localStorage.setItem("config", JSON.stringify(updatedConfig));
-			window.dispatchEvent(new Event("config-updated"));
-			if (
-				updatedConfig.defaultInstallFolder !== config.defaultInstallFolder ||
-				updatedConfig.defaultBinFolder !== config.defaultBinFolder
-			) {
-				handleReloadQuickLaunch();
-			}
-		} catch (error) {
-			console.error("Error updating config:", error);
-		}
+				setConfig(updatedConfig);
+				// update local storage
+				localStorage.setItem("config", JSON.stringify(updatedConfig));
+				window.dispatchEvent(new Event("config-updated"));
+				if (
+					updatedConfig.defaultInstallFolder !==
+						previousConfig.defaultInstallFolder ||
+					updatedConfig.defaultBinFolder !== previousConfig.defaultBinFolder
+				) {
+					handleReloadQuickLaunch();
+				}
+			})
+			.catch((error) => {
+				console.error("Error updating config:", error);
+			});
+		await updateQueue.current;
 	};
 
 	async function handleSaveDir(setting1: string, setting2?: string) {
@@ -184,15 +192,27 @@ export default function Settings() {
 	};
 
 	async function handleResetSettings() {
-		localStorage.clear();
-		await apiFetch("/config/delete", {
-			method: "POST",
+		if (resetStarted.current) return;
+		resetStarted.current = true;
+		const resetOperation = updateQueue.current.then(async () => {
+			const response = await apiFetch("/config/reset", {
+				method: "POST",
+			});
+			if (!response.ok) throw new Error("Failed to reset settings");
+			for (const key of ["config", "language", "firstLaunch"]) {
+				localStorage.removeItem(key);
+			}
+			await window.electron.ipcRenderer.invoke("check-first-launch");
+			await window.electron.ipcRenderer.invoke("end-session");
+			navigate("/first-time");
 		});
-		await window.electron.ipcRenderer.invoke("check-first-launch");
-		// await logout();
-		// terminate session
-		await window.electron.ipcRenderer.invoke("end-session");
-		navigate("/first-time");
+		updateQueue.current = resetOperation.catch(() => {});
+		try {
+			await resetOperation;
+		} catch (error) {
+			resetStarted.current = false;
+			throw error;
+		}
 	}
 
 	async function handleDeleteCache() {
@@ -210,10 +230,6 @@ export default function Settings() {
 			setDeleteCacheStatus("error");
 		}
 	}
-
-	const openVariablesModal = (state: boolean) => {
-		setVariablesModal(state);
-	};
 
 	const handleCheckUpdates = () => {
 		window.electron.ipcRenderer.invoke("check-update-and-notify");
@@ -290,7 +306,6 @@ export default function Settings() {
 						handleLogsDir={handleLogsDir}
 						handleCheckUpdates={handleCheckUpdates}
 						handleExportLogs={handleExportLogs}
-						openVariablesModal={openVariablesModal}
 						handleReportError={handleReportError}
 						handleResetSettings={handleResetSettings}
 						packVersion={packVersion || "loading..."}
@@ -331,11 +346,6 @@ export default function Settings() {
 					</main>
 				</div>
 			</div>
-			{variablesModal && (
-				<div>
-					<VariablesModal onClose={() => openVariablesModal(false)} />
-				</div>
-			)}
 		</>
 	);
 }

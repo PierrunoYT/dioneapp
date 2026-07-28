@@ -1,4 +1,10 @@
-import { deleteConfig, readConfig, resetConfig, updateConfig } from "@/config";
+import {
+	deleteConfig,
+	parseConfigPatch,
+	readConfig,
+	resetConfig,
+	updateConfig,
+} from "@/config";
 import { toggleDiscordRPC } from "@/discord/presence";
 import express from "express";
 
@@ -12,41 +18,34 @@ router.get("/", (_req, res) => {
 });
 
 // update config
-router.post("/update", async (req, res) => {
+const patchConfig = async (req: express.Request, res: express.Response) => {
 	try {
-		console.log("trying to update config: ", req.body);
-
-		// Validate incoming paths: do not allow whitespace
-		if (
-			(req.body.defaultInstallFolder &&
-				/\s/.test(req.body.defaultInstallFolder)) ||
-			(req.body.defaultBinFolder && /\s/.test(req.body.defaultBinFolder))
-		) {
-			console.warn("Attempt to update config with path containing whitespace");
-			return res.status(400).send({ error: "Paths cannot contain spaces." });
-		}
+		const patch = parseConfigPatch(req.body);
 		const currentConfig = readConfig();
-		updateConfig(req.body);
-		const updatedConfig = readConfig();
+		const updatedConfig = updateConfig(patch);
 
 		if (
-			req.body.enableDiscordRPC !== undefined &&
-			req.body.enableDiscordRPC !== currentConfig?.enableDiscordRPC
+			patch.enableDiscordRPC !== undefined &&
+			patch.enableDiscordRPC !== currentConfig.enableDiscordRPC
 		) {
-			await toggleDiscordRPC(req.body.enableDiscordRPC);
+			await toggleDiscordRPC(patch.enableDiscordRPC);
 		}
 
 		res.send(updatedConfig);
 	} catch (error) {
-		res.status(400).send({ error: "Failed to update configuration" });
+		res.status(400).send({ error: (error as Error).message });
 	}
-});
+};
+
+router.patch("/", patchConfig);
+// Compatibility for older renderers. Both routes use the same strict schema.
+router.post("/update", patchConfig);
 
 router.post("/reset", (_req, res) => {
 	try {
 		console.log("trying to reset config");
 		resetConfig();
-		res.send({ success: true });
+		res.send(readConfig());
 	} catch (error) {
 		res.status(400).send({ error: "Failed to reset configuration" });
 	}

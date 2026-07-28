@@ -21,8 +21,8 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?id=${id}&limit=1`,
 			{
 				headers: {
-					...(process.env.API_KEY
-						? { Authorization: `Bearer ${process.env.API_KEY}` }
+					...(process.env.DIONE_API_KEY
+						? { Authorization: `Bearer ${process.env.DIONE_API_KEY}` }
 						: {}),
 				},
 			},

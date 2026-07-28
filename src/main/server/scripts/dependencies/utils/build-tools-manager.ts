@@ -50,23 +50,27 @@ class BuildToolsManager {
 	private getVCVarsEnvironment(
 		vcvarsPath: string,
 	): Record<string, string> | null {
+		let privateTempDir: string | undefined;
 		try {
-			const tempScript = path.join(os.tmpdir(), `vcvars_${Date.now()}.bat`);
+			privateTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dione-vcvars-"));
+			const tempScript = path.join(privateTempDir, "vcvars.bat");
 			const batchContent = `@echo off
 call "${vcvarsPath}" >nul 2>&1
 echo VCVARS_ENV_START
 set
 echo VCVARS_ENV_END`;
 
-			fs.writeFileSync(tempScript, batchContent);
+			fs.writeFileSync(tempScript, batchContent, {
+				encoding: "utf8",
+				flag: "wx",
+				mode: 0o600,
+			});
 
 			const output = execSync(`"${tempScript}"`, {
 				encoding: "utf8",
 				timeout: 30000,
 				windowsHide: true,
 			});
-
-			fs.unlinkSync(tempScript);
 
 			const envStart = output.indexOf("VCVARS_ENV_START");
 			const envEnd = output.indexOf("VCVARS_ENV_END");
@@ -93,6 +97,14 @@ echo VCVARS_ENV_END`;
 		} catch (error: any) {
 			logger.error(`Failed to get vcvars environment: ${error.message}`);
 			return null;
+		} finally {
+			if (privateTempDir) {
+				try {
+					fs.rmSync(privateTempDir, { recursive: true, force: true });
+				} catch (error) {
+					logger.warn(`Failed to clean private vcvars directory: ${error}`);
+				}
+			}
 		}
 	}
 

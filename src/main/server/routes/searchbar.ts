@@ -46,15 +46,17 @@ router.get("/name/:name", async (req, res) => {
 	const orderType = (req.query.order_type as string) || null;
 
 	try {
-		const url = new URL(`https://api-getdione-app.deeivihh.workers.dev/v1/scripts`);
+		const url = new URL(
+			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts`,
+		);
 		url.searchParams.set("q", name);
 		if (orderBy) url.searchParams.set("order", orderBy);
 		if (orderType) url.searchParams.set("order_type", orderType);
 
 		const response = await fetch(url.toString(), {
 			headers: {
-				...(process.env.API_KEY
-					? { Authorization: `Bearer ${process.env.API_KEY}` }
+				...(process.env.DIONE_API_KEY
+					? { Authorization: `Bearer ${process.env.DIONE_API_KEY}` }
 					: {}),
 			},
 		});

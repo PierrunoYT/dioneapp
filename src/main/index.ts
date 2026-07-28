@@ -59,6 +59,23 @@ if (!gotSingleInstanceLock) {
 	app.quit();
 }
 
+let shutdownHandler: (() => Promise<void>) | null = null;
+let shutdownComplete = false;
+
+async function requestShutdown(): Promise<void> {
+	try {
+		await shutdownHandler?.();
+	} finally {
+		shutdownComplete = true;
+	}
+}
+
+app.on("before-quit", (event) => {
+	if (!shutdownHandler || shutdownComplete) return;
+	event.preventDefault();
+	void requestShutdown().finally(() => app.quit());
+});
+
 // remove so we can register each time as we run the app.
 if (gotSingleInstanceLock) {
 	app.removeAsDefaultProtocolClient("dione");
@@ -510,6 +527,7 @@ function createWindow() {
 
 // Sets up the application when ready.
 app.whenReady().then(async () => {
+	let shutdownPromise: Promise<void> | null = null;
 	if (!gotSingleInstanceLock) return;
 
 	logger.info("Starting app...");
@@ -766,20 +784,8 @@ app.whenReady().then(async () => {
 
 	ipcMain.handle("app:close", async () => {
 		mainWindow.hide();
-		// close ollama (if running)
-		await fetch(`http://localhost:${port}/ai/ollama/stop`, {
-			method: "POST",
-		});
-		// close server
 		try {
-			await Promise.race([
-				await destroyPresence(),
-				await handleEndSession(),
-				await stopServer(),
-				new Promise((_, reject) =>
-					setTimeout(reject, 10000, new Error("Server stop timeout")),
-				),
-			]);
+			await requestShutdown();
 		} catch (error) {
 			logger.error("Error during shutdown:", error);
 		} finally {
@@ -992,20 +998,24 @@ app.whenReady().then(async () => {
 		}
 	});
 
-	ipcMain.on("restart_app", () => {
+	ipcMain.on("restart_app", async () => {
+		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("quit_and_install", () => {
+	ipcMain.on("quit_and_install", async () => {
+		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("download_and_restart", () => {
-		autoUpdater.downloadUpdate();
+	ipcMain.on("download_and_restart", async () => {
+		await autoUpdater.downloadUpdate();
+		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("restart", () => {
+	ipcMain.on("restart", async () => {
+		await requestShutdown();
 		app.relaunch();
 		app.exit();
 	});
@@ -1088,6 +1098,63 @@ app.whenReady().then(async () => {
 		return false;
 	}
 
+	function shutdown(): Promise<void> {
+		if (shutdownPromise) return shutdownPromise;
+
+		shutdownPromise = (async () => {
+			const logFailures = (results: PromiseSettledResult<unknown>[]) => {
+				for (const result of results) {
+					if (result.status === "rejected") {
+						logger.warn("Shutdown cleanup failed:", result.reason);
+					}
+				}
+			};
+			const cleanup = (async () => {
+				const backendCleanup = Promise.allSettled([
+					port
+						? fetch(`http://localhost:${port}/ai/ollama/stop`, {
+								method: "POST",
+							})
+						: Promise.resolve(),
+					handleEndSession(),
+				]);
+				let backendTimer: ReturnType<typeof setTimeout> | undefined;
+				const backendResults = await Promise.race([
+					backendCleanup,
+					new Promise<null>((resolve) => {
+						backendTimer = setTimeout(() => resolve(null), 5000);
+					}),
+				]);
+				if (backendTimer) clearTimeout(backendTimer);
+				if (backendResults) logFailures(backendResults);
+
+				logFailures(
+					await Promise.allSettled([
+						destroyPresence(),
+						stopTunnel(),
+						stopServer(),
+					]),
+				);
+			})();
+			let timeout: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					cleanup,
+					new Promise<void>((resolve) => {
+						timeout = setTimeout(() => {
+							logger.warn("Shutdown cleanup timed out after 10 seconds");
+							resolve();
+						}, 10000);
+					}),
+				]);
+			} finally {
+				if (timeout) clearTimeout(timeout);
+			}
+		})();
+		return shutdownPromise;
+	}
+	shutdownHandler = shutdown;
+
 	ipcMain.on("start-session", (_event, { user }) => {
 		handleStartSession({ user });
 	});
@@ -1107,46 +1174,37 @@ app.whenReady().then(async () => {
 	});
 
 	// Get network address for sharing
-	ipcMain.handle(
-		"get-network-address",
-		async (_event, requestedPort?: number) => {
-			const networkIP = getLocalNetworkIP();
-			const resolvedPort = requestedPort ?? port;
+	ipcMain.handle("get-network-address", async () => {
+		const networkIP = getLocalNetworkIP();
 
-			if (!networkIP || !resolvedPort) {
-				return null;
-			}
+		if (!networkIP || !port) {
+			return null;
+		}
 
-			return {
-				ip: networkIP,
-				port: resolvedPort,
-				url: `http://${networkIP}:${resolvedPort}`,
-			};
-		},
-	);
+		return {
+			ip: networkIP,
+			port,
+			url: `http://${networkIP}:${port}`,
+		};
+	});
 
 	// Start tunnel (Localtunnel)
-	ipcMain.handle(
-		"start-tunnel",
-		async (_event, type: "localtunnel", requestedPort?: number) => {
-			try {
-				const resolvedPort = requestedPort ?? port;
-				if (!resolvedPort) {
-					throw new Error("Server port not available");
-				}
-
-				logger.info(`Starting ${type} tunnel...`);
-
-				const tunnelInfo = await startLocaltunnel(resolvedPort);
-
-				logger.info(`Tunnel started: ${tunnelInfo.url}`);
-				return tunnelInfo;
-			} catch (error) {
-				logger.error("Failed to start tunnel:", error);
-				throw error;
+	ipcMain.handle("start-tunnel", async () => {
+		try {
+			if (!port) {
+				throw new Error("Server port not available");
 			}
-		},
-	);
+
+			logger.info("Starting Localtunnel...");
+			const tunnelInfo = await startLocaltunnel(port);
+
+			logger.info(`Tunnel started: ${tunnelInfo.url}`);
+			return tunnelInfo;
+		} catch (error) {
+			logger.error("Failed to start tunnel:", error);
+			throw error;
+		}
+	});
 
 	// Stop tunnel
 	ipcMain.handle("stop-tunnel", async () => {
@@ -1177,40 +1235,6 @@ app.whenReady().then(async () => {
 		} catch (error) {
 			logger.error("Failed to shorten URL:", error);
 			return null;
-		}
-	});
-
-	ipcMain.handle("send-discord-report", async (_, data) => {
-		if (is.dev) return "dev-mode";
-
-		try {
-			const webhookUrl = import.meta.env.VITE_DISCORD_WEBHOOK_URL;
-			if (!webhookUrl) {
-				throw new Error("Discord webhook URL not configured");
-			}
-
-			const form = new FormData();
-
-			const { logContent, ...rest } = data;
-			form.append("payload_json", JSON.stringify(rest));
-			if (logContent && typeof logContent === "string") {
-				const blob = new Blob([logContent], { type: "text/plain" });
-				form.append("file", blob, "logs.log");
-			}
-
-			const response = await fetch(webhookUrl, {
-				method: "POST",
-				body: form as any,
-			});
-
-			if (!response.ok) {
-				throw new Error(`Failed to send report: ${response.statusText}`);
-			}
-
-			return true;
-		} catch (err) {
-			logger.error("Failed to send Discord report:", err);
-			return false;
 		}
 	});
 
@@ -1265,12 +1289,28 @@ app.whenReady().then(async () => {
 	ipcMain.handle("restart-backend", async () => {
 		try {
 			logger.info("Restarting backend...");
-			await Promise.race([
-				await stopServer(),
-				new Promise((_, reject) =>
-					setTimeout(reject, 10000, new Error("Server stop timeout")),
-				),
-			]);
+			const stopBackend = Promise.allSettled([stopTunnel(), stopServer()]).then(
+				(results) => {
+					for (const result of results) {
+						if (result.status === "rejected") throw result.reason;
+					}
+				},
+			);
+			let restartTimer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					stopBackend,
+					new Promise((_, reject) => {
+						restartTimer = setTimeout(
+							reject,
+							10000,
+							new Error("Server stop timeout"),
+						);
+					}),
+				]);
+			} finally {
+				if (restartTimer) clearTimeout(restartTimer);
+			}
 			port = await startServer();
 			updateBackendPortState(port, { broadcast: true });
 			logger.info(`Backend restarted successfully on port ${port}`);
@@ -1515,8 +1555,8 @@ ipcMain.handle("capture-screenshot", async (event, options = {}) => {
 
 // Quit the application when all windows are closed, except on macOS.
 app.on("window-all-closed", async () => {
-	await destroyPresence();
 	if (process.platform !== "darwin") {
+		await requestShutdown();
 		app.quit();
 	}
 });

@@ -13,6 +13,7 @@ import QuickAI from "@/pages/quick-ai";
 import Report from "@/pages/report";
 import Settings from "@/pages/settings";
 import { apiJson } from "@/utils/api";
+import { isConfig, readStoredJson } from "@/utils/local-storage";
 import { initializeTheme } from "@/utils/theme";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -23,8 +24,7 @@ function App() {
 	const [_isFirstLaunch, setIsFirstLaunch] = useState<boolean>(false);
 	const [_isLoading, setIsLoading] = useState(true);
 	const [config, setConfig] = useState<any | null>(() => {
-		const stored = localStorage.getItem("config");
-		return stored ? JSON.parse(stored) : null;
+		return readStoredJson("config", () => null, isConfig);
 	});
 	const navigate = useNavigate();
 
@@ -72,10 +72,7 @@ function App() {
 
 	useEffect(() => {
 		const handleConfigUpdate = () => {
-			const updatedConfig = localStorage.getItem("config");
-			if (updatedConfig) {
-				setConfig(JSON.parse(updatedConfig));
-			}
+			setConfig(readStoredJson("config", () => null, isConfig));
 		};
 
 		window.addEventListener("config-updated", handleConfigUpdate);
@@ -84,8 +81,7 @@ function App() {
 	}, []);
 
 	useEffect(() => {
-		const cachedConfig = localStorage.getItem("config");
-		if (cachedConfig) setConfig(JSON.parse(cachedConfig));
+		setConfig(readStoredJson("config", () => null, isConfig));
 
 		const fetchConfig = async () => {
 			try {

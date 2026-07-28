@@ -5,6 +5,7 @@ import Icon from "@/components/icons/icon";
 import { Button, IconButton, Modal } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
+import { isConfig, readStoredJson } from "@/utils/local-storage";
 import { openLink } from "@/utils/open-link";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
@@ -109,10 +110,7 @@ export default function Sidebar() {
 
 	useEffect(() => {
 		const handleConfigUpdate = () => {
-			const updatedConfig = localStorage.getItem("config");
-			if (updatedConfig) {
-				setConfig(JSON.parse(updatedConfig));
-			}
+			setConfig(readStoredJson("config", () => null, isConfig));
 		};
 
 		window.addEventListener("config-updated", handleConfigUpdate);
@@ -121,8 +119,7 @@ export default function Sidebar() {
 	}, []);
 
 	useEffect(() => {
-		const cachedConfig = localStorage.getItem("config");
-		if (cachedConfig) setConfig(JSON.parse(cachedConfig));
+		setConfig(readStoredJson("config", () => null, isConfig));
 
 		const fetchConfig = async () => {
 			try {

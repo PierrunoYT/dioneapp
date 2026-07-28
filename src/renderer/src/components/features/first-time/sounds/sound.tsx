@@ -1,11 +1,11 @@
 import sound from "@/components/features/first-time/sounds/intro.mp3";
+import { isBoolean, readStoredJson } from "@/utils/local-storage";
 import { Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const ExecuteSound = ({ firstLaunch }: { firstLaunch: string }) => {
 	const [isMuted, setIsMuted] = useState(() => {
-		const savedMute = localStorage.getItem("isSoundMuted");
-		return savedMute ? JSON.parse(savedMute) : false;
+		return readStoredJson("isSoundMuted", () => false, isBoolean);
 	});
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
