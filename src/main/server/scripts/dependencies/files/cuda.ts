@@ -1,8 +1,7 @@
-import { execFile, spawn } from "child_process";
-import fs from "fs";
+import { execFile, spawn } from "node:child_process";
+import fs from "node:fs";
 import fsp from "node:fs/promises";
-import https from "https";
-import path from "path";
+import path from "node:path";
 import {
 	addValue,
 	getAllValues,
@@ -11,6 +10,11 @@ import {
 	removeValue,
 } from "@/server/scripts/dependencies/environment";
 import { getArch, getOS } from "@/server/scripts/dependencies/utils/system";
+import {
+	type ArtifactMetadata,
+	createPrivateStagingDirectory,
+	downloadVerifiedArtifact,
+} from "@/server/scripts/dependencies/utils/verified-artifact";
 import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
 
@@ -28,12 +32,22 @@ interface CudaOwnershipManifest {
 	createdAt: string;
 }
 
-function getCudaUrl(platform: string, arch: string): string | undefined {
+function getCudaArtifact(
+	platform: string,
+	arch: string,
+): ArtifactMetadata | undefined {
 	if (platform === "windows" && arch === "amd64") {
-		return "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_531.14_windows.exe";
-	}
-	if (platform === "linux" && arch === "amd64") {
-		return "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_530.30.02_linux.run";
+		return {
+			id: "cuda_12.1.0_531.14_windows.exe",
+			version: "12.1.0",
+			url: "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_531.14_windows.exe",
+			allowedHosts: ["developer.download.nvidia.com"],
+			verification: {
+				type: "authenticode",
+				publishers: ["NVIDIA Corporation"],
+			},
+			maxDownloadBytes: 5 * 1024 * 1024 * 1024,
+		};
 	}
 	return undefined;
 }
@@ -57,8 +71,8 @@ export async function isInstalled(
 				});
 			});
 
-			return { installed: true, reason: `nvcc-found-in-path` };
-		} catch (error) {}
+			return { installed: true, reason: "nvcc-found-in-path" };
+		} catch {}
 	} else {
 		return { installed: false, reason: "unsupported-platform" };
 	}
@@ -98,22 +112,23 @@ export async function install(
 
 	if (signal?.aborted) return { success: false };
 
-	const url = getCudaUrl(platform, arch);
-	if (!url) {
+	const artifact = getCudaArtifact(platform, arch);
+	if (!artifact) {
 		io.to(id).emit("installDep", {
 			type: "error",
-			content: `No download URL found for ${depName} ${cudaVersion} on ${platform} (${arch})`,
+			content:
+				platform === "linux"
+					? "CUDA runfile installation is disabled on Linux because NVIDIA publishes only an MD5 value for this artifact and no verifiable vendor signature."
+					: `No verified artifact is available for ${depName} ${cudaVersion} on ${platform} (${arch}).`,
 		});
 		return { success: false };
 	}
 
-	if (!fs.existsSync(tempDir)) {
-		fs.mkdirSync(tempDir, { recursive: true });
-	}
-
-	const installerExt = platform === "windows" ? "exe" : "run";
-	const installerFilename = `${depName}-${cudaVersion}-${platform}-${arch}.${installerExt}`;
-	const installerFilepath = path.join(tempDir, installerFilename);
+	const stagingDirectory = await createPrivateStagingDirectory(
+		tempDir,
+		"cuda-installer-",
+	);
+	const installerFilepath = path.join(stagingDirectory, artifact.id);
 
 	io.to(id).emit("installDep", {
 		type: "log",
@@ -121,57 +136,14 @@ export async function install(
 	});
 
 	try {
-		await new Promise<void>((resolve, reject) => {
-			if (signal?.aborted) return reject(new Error("Aborted"));
-			const fileStream = fs.createWriteStream(installerFilepath);
-			const options = {
-				headers: { "User-Agent": "Mozilla/5.0" },
-				signal,
-			};
-
-			const req = https
-				.get(url, options, (response) => {
-					if (
-						response.statusCode &&
-						response.statusCode >= 300 &&
-						response.statusCode < 400 &&
-						response.headers.location
-					) {
-						https
-							.get(
-								response.headers.location,
-								{ ...options },
-								(redirectResponse) => {
-									redirectResponse.pipe(fileStream);
-									fileStream.on("close", resolve);
-									fileStream.on("error", reject);
-								},
-							)
-							.on("error", reject);
-					} else if (response.statusCode === 200) {
-						response.pipe(fileStream);
-						fileStream.on("close", resolve);
-						fileStream.on("error", reject);
-					} else {
-						reject(
-							new Error(`HTTP ${response.statusCode} for installer download`),
-						);
-					}
-				})
-				.on("error", reject);
-
-			signal?.addEventListener("abort", () => {
-				req.destroy();
-				fileStream.destroy();
-				reject(new Error("Aborted"));
-			});
-		});
+		await downloadVerifiedArtifact(artifact, installerFilepath, { signal });
 
 		io.to(id).emit("installDep", {
 			type: "log",
-			content: `${depName} installer downloaded successfully to ${installerFilepath}`,
+			content: `${depName} installer downloaded and signature-verified successfully.`,
 		});
 	} catch (error: any) {
+		await fsp.rm(stagingDirectory, { recursive: true, force: true });
 		if (
 			signal?.aborted ||
 			error.message === "Aborted" ||
@@ -187,11 +159,14 @@ export async function install(
 		return { success: false };
 	}
 
-	if (signal?.aborted) return { success: false };
+	if (signal?.aborted) {
+		await fsp.rm(stagingDirectory, { recursive: true, force: true });
+		return { success: false };
+	}
 
 	io.to(id).emit("installDep", {
 		type: "log",
-		content: `Running CUDA installer...`,
+		content: "Running CUDA installer...",
 	});
 
 	let command: { file: string; args: string[] };
@@ -199,7 +174,7 @@ export async function install(
 	if (platform === "windows") {
 		command = {
 			file: installerFilepath,
-			args: [`-s -n nvcc_12.1 cudart_12.1`],
+			args: ["-s", "-n", "nvcc_12.1", "cudart_12.1"],
 		};
 	} else if (platform === "linux") {
 		command = {
@@ -221,7 +196,7 @@ export async function install(
 
 	const ENVIRONMENT = getAllValues();
 	const spawnOptions = {
-		shell: true,
+		shell: false,
 		windowsHide: true,
 		env: ENVIRONMENT,
 		signal,
@@ -230,13 +205,14 @@ export async function install(
 	try {
 		await new Promise<void>((resolve, reject) => {
 			if (signal?.aborted) return reject(new Error("Aborted"));
-			let child;
+			let child: ReturnType<typeof spawn>;
 
 			if (platform === "windows") {
-				const argString = command.args.join(" ");
 				const installerPathEscaped = installerFilepath.replace(/'/g, "''");
-				const argStringEscaped = argString.replace(/'/g, "''");
-				const psCommand = `Start-Process -FilePath '${installerPathEscaped}' -ArgumentList '${argStringEscaped}' -Verb RunAs -Wait -PassThru`;
+				const argumentList = command.args
+					.map((argument) => `'${argument.replace(/'/g, "''")}'`)
+					.join(",");
+				const psCommand = `Start-Process -FilePath '${installerPathEscaped}' -ArgumentList ${argumentList} -Verb RunAs -Wait -PassThru`;
 
 				child = spawn(
 					"powershell",
@@ -305,6 +281,7 @@ export async function install(
 			});
 		});
 	} catch (error: any) {
+		await fsp.rm(stagingDirectory, { recursive: true, force: true });
 		if (
 			signal?.aborted ||
 			error.message === "Aborted" ||
@@ -312,13 +289,14 @@ export async function install(
 		) {
 			return { success: false };
 		}
-		logger.error(`Error running CUDA installer:`, error);
+		logger.error("Error running CUDA installer:", error);
 		io.to(id).emit("installDep", {
 			type: "error",
 			content: `Fatal error during CUDA installation: ${error}`,
 		});
 		return { success: false };
 	}
+	await fsp.rm(stagingDirectory, { recursive: true, force: true });
 
 	if (!pathExistedBeforeInstall && fs.existsSync(managedPath)) {
 		const manifest: CudaOwnershipManifest = {

@@ -1,6 +1,6 @@
 import child_process from "node:child_process";
 import fs from "node:fs";
-import path from "path";
+import path from "node:path";
 import {
 	ensureBuildToolsInstalled,
 	verifyBuildToolsPaths,
@@ -209,21 +209,19 @@ export async function uninstall(binFolder: string): Promise<void> {
 				}
 			}
 			logger.error(
-				`Build Tools uninstall failed with exit code ${spawnResult.status}` +
-					(stderrMsg ? `: ${stderrMsg}` : ""),
+				`Build Tools uninstall failed with exit code ${spawnResult.status}${stderrMsg ? `: ${stderrMsg}` : ""}`,
 			);
 			throw new Error(
-				`vs_installer.exe uninstall failed with exit code ${spawnResult.status}` +
-					(stderrMsg ? `: ${stderrMsg}` : ""),
+				`vs_installer.exe uninstall failed with exit code ${spawnResult.status}${stderrMsg ? `: ${stderrMsg}` : ""}`,
 			);
 		}
 		logger.info("Build Tools uninstall completed successfully.");
 	} catch (e: any) {
 		logger.error(
-			`Exception while running uninstall: ${e && e.message ? e.message : e}`,
+			`Exception while running uninstall: ${e?.message ? e.message : e}`,
 		);
 		throw new Error(
-			`Build Tools uninstall command failed: ${e && e.message ? e.message : e}`,
+			`Build Tools uninstall command failed: ${e?.message ? e.message : e}`,
 		);
 	}
 }

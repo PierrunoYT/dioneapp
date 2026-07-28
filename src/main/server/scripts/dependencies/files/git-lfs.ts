@@ -1,7 +1,7 @@
-import { execFile, spawn } from "child_process";
-import fs from "fs";
-import https from "https";
-import path from "path";
+import { execFile } from "node:child_process";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { closeFile } from "@/server/scripts/delete";
 import {
 	addValue,
@@ -9,55 +9,129 @@ import {
 	removeValue,
 } from "@/server/scripts/dependencies/environment";
 import { getArch, getOS } from "@/server/scripts/dependencies/utils/system";
+import {
+	type ArchiveFormat,
+	type ArtifactMetadata,
+	GITHUB_RELEASE_HOSTS,
+	createPrivateStagingDirectory,
+	downloadVerifiedArtifact,
+	extractVerifiedArchive,
+	promoteStagedDirectory,
+} from "@/server/scripts/dependencies/utils/verified-artifact";
 import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
 
 const depName = "git_lfs";
-const ENVIRONMENT = getAllValues();
+const version = "3.7.1";
+
+function gitLfsArtifact(
+	name: string,
+	sha256: string,
+	format: ArchiveFormat,
+): ArtifactMetadata {
+	return {
+		id: `git-lfs-${name}`,
+		version,
+		url: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/${name}`,
+		allowedHosts: GITHUB_RELEASE_HOSTS,
+		verification: { type: "sha256", sha256 },
+		maxDownloadBytes: 100 * 1024 * 1024,
+		archive: {
+			format,
+			limits: { maxMembers: 100, maxExpandedBytes: 250 * 1024 * 1024 },
+		},
+	};
+}
+
+// Digests are from the immutable Git LFS v3.7.1 GitHub release assets.
+const artifacts: Record<string, Record<string, ArtifactMetadata>> = {
+	linux: {
+		amd64: gitLfsArtifact(
+			"git-lfs-linux-amd64-v3.7.1.tar.gz",
+			"1c0b6ee5200ca708c5cebebb18fdeb0e1c98f1af5c1a9cba205a4c0ab5a5ec08",
+			"tar.gz",
+		),
+		arm64: gitLfsArtifact(
+			"git-lfs-linux-arm64-v3.7.1.tar.gz",
+			"73a9c90eeb4312133a63c3eaee0c38c019ea7bfa0953d174809d25b18588dd8d",
+			"tar.gz",
+		),
+	},
+	macos: {
+		amd64: gitLfsArtifact(
+			"git-lfs-darwin-amd64-v3.7.1.zip",
+			"b5b1b641c0648c83661fa9eda991cd3eff945264dabc2cdf411a80dfe7ec0970",
+			"zip",
+		),
+		arm64: gitLfsArtifact(
+			"git-lfs-darwin-arm64-v3.7.1.zip",
+			"76260fb34f4ee622ff0a66b857e5954aa49c7e343a92e57a1ec4a760618c94b2",
+			"zip",
+		),
+	},
+	windows: {
+		amd64: gitLfsArtifact(
+			"git-lfs-windows-amd64-v3.7.1.zip",
+			"8683cdc3d6c029b49393dcebbaa6265bd6efd9abdcf837be855b4cd42e5e80b6",
+			"zip",
+		),
+		arm64: gitLfsArtifact(
+			"git-lfs-windows-arm64-v3.7.1.zip",
+			"9441383a3928a7f387223711929292a46ace95580ceed443d61e7b8a4d9615c3",
+			"zip",
+		),
+		x86: gitLfsArtifact(
+			"git-lfs-windows-386-v3.7.1.zip",
+			"06c05c06523abf3930301b3022527ad881b1a7f8bf036ed6d93c8e68569041bb",
+			"zip",
+		),
+	},
+};
+
+async function findBinary(
+	root: string,
+	binaryName: string,
+): Promise<string | undefined> {
+	const stack = [root];
+	while (stack.length > 0) {
+		const current = stack.pop();
+		if (!current) break;
+		for (const entry of await fsp.readdir(current, { withFileTypes: true })) {
+			const entryPath = path.join(current, entry.name);
+			if (entry.isDirectory()) stack.push(entryPath);
+			else if (entry.isFile() && entry.name === binaryName) return entryPath;
+		}
+	}
+	return undefined;
+}
 
 export async function isInstalled(
 	binFolder: string,
 ): Promise<{ installed: boolean; reason: string; version?: string }> {
 	const depFolder = path.join(binFolder, depName);
-	const env = getAllValues();
-
-	if (process.platform === "linux" || process.platform === "darwin") {
-		try {
-			const stdout = await new Promise<string>((resolve, reject) => {
-				execFile("git-lfs", ["--version"], { env }, (error, stdout) => {
-					if (error) reject(error);
-					else resolve(stdout);
-				});
-			});
-			const versionMatch = stdout.match(/git-lfs[\/ ]?([\d.]+)/i);
-			const version = versionMatch ? versionMatch[1] : "system";
-			return { installed: true, reason: "installed", version };
-		} catch {
-			return { installed: false, reason: "not-installed" };
-		}
-	}
-
-	if (!fs.existsSync(depFolder) || fs.readdirSync(depFolder).length === 0) {
+	const command =
+		process.platform === "win32"
+			? path.join(depFolder, "git-lfs.exe")
+			: "git-lfs";
+	if (process.platform === "win32" && !fs.existsSync(command)) {
 		return { installed: false, reason: "not-installed" };
 	}
-
 	try {
 		const stdout = await new Promise<string>((resolve, reject) => {
 			execFile(
-				path.join(depFolder, "git-lfs.exe"),
+				command,
 				["--version"],
-				{ env, cwd: depFolder },
-				(error, stdout) => {
+				{ env: getAllValues() },
+				(error, output) => {
 					if (error) reject(error);
-					else resolve(stdout);
+					else resolve(output);
 				},
 			);
 		});
-		const versionMatch = stdout.match(/git-lfs[\/ ]?([\d.]+)/i);
-		const version = versionMatch ? versionMatch[1] : "unknown";
-		return { installed: true, reason: "installed", version };
+		const match = stdout.match(/git-lfs[\/ ]?([\d.]+)/i);
+		return { installed: true, reason: "installed", version: match?.[1] };
 	} catch {
-		return { installed: false, reason: "error" };
+		return { installed: false, reason: "not-installed" };
 	}
 }
 
@@ -66,253 +140,82 @@ export async function install(
 	id: string,
 	io: Server,
 ): Promise<{ success: boolean }> {
-	const depFolder = path.join(binFolder, depName);
-	const tempDir = path.join(binFolder, "temp");
-
 	const platform = getOS();
 	const arch = getArch();
-
-	if (!fs.existsSync(depFolder)) fs.mkdirSync(depFolder, { recursive: true });
-	if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-	const version = "3.7.1";
-
-	const urls: Record<string, Record<string, string>> = {
-		linux: {
-			amd64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-linux-amd64-v${version}.tar.gz`,
-			arm64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-linux-arm64-v${version}.tar.gz`,
-		},
-		macos: {
-			amd64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-darwin-amd64-v${version}.zip`,
-			arm64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-darwin-arm64-v${version}.zip`,
-		},
-		windows: {
-			amd64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-windows-amd64-v${version}.zip`,
-			arm64: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-windows-arm64-v${version}.zip`,
-			x86: `https://github.com/git-lfs/git-lfs/releases/download/v${version}/git-lfs-windows-386-v${version}.zip`,
-		},
-	};
-
-	const url = urls[platform]?.[arch];
-
-	if (!url) {
+	const artifact = artifacts[platform]?.[arch];
+	if (!artifact) {
 		io.to(id).emit("installDep", {
 			type: "error",
-			content: `No download URL found for ${depName} on ${platform} (${arch})`,
+			content: `No verified Git LFS artifact is available for ${platform} (${arch}).`,
 		});
 		return { success: false };
 	}
 
-	const installerExt =
-		platform === "windows" || platform === "macos" ? "zip" : "tar.gz";
-	const installerPath = path.join(
+	const tempDir = path.join(binFolder, "temp");
+	const depFolder = path.join(binFolder, depName);
+	const downloadStage = await createPrivateStagingDirectory(
 		tempDir,
-		`git-lfs-${platform}-${arch}.${installerExt}`,
+		"git-lfs-download-",
 	);
-	const installerFile = fs.createWriteStream(installerPath);
-
-	io.to(id).emit("installDep", {
-		type: "log",
-		content: `Downloading ${depName} for ${platform} (${arch})...`,
-	});
-
+	const installStage = await createPrivateStagingDirectory(
+		tempDir,
+		"git-lfs-install-",
+	);
+	const artifactPath = path.join(
+		downloadStage,
+		path.basename(new URL(artifact.url).pathname),
+	);
+	let extractionStage: string | undefined;
 	try {
-		await new Promise<void>((resolve, reject) => {
-			https
-				.get(url, (response) => {
-					if ([301, 302].includes(response.statusCode ?? 0)) {
-						const redirectUrl = response.headers.location;
-						if (!redirectUrl) {
-							reject(new Error("Redirect URL not found"));
-							return;
-						}
-						https
-							.get(redirectUrl, (redirectResponse) => {
-								redirectResponse.pipe(installerFile);
-								installerFile.on("close", resolve);
-								installerFile.on("error", reject);
-							})
-							.on("error", reject);
-					} else if (response.statusCode === 200) {
-						response.pipe(installerFile);
-						installerFile.on("close", resolve);
-						installerFile.on("error", reject);
-					} else {
-						reject(new Error(`HTTP ${response.statusCode}`));
-					}
-				})
-				.on("error", reject);
-		});
-	} catch (error) {
 		io.to(id).emit("installDep", {
-			type: "error",
-			content: `Download failed for ${depName}: ${String(error)}`,
+			type: "log",
+			content: `Downloading and verifying Git LFS ${version} for ${platform} (${arch})...`,
 		});
-		return { success: false };
-	}
-
-	const commands: Record<string, { file: string; args: string[] }> = {
-		linux: {
-			file: "bash",
-			args: [
-				"-c",
-				`
-cd "${tempDir}" && \
-tar -xzf "${installerPath}" && \
-find . -type f -name "git-lfs" -exec cp {} "${depFolder}/git-lfs" \\; && \
-chmod +x "${depFolder}/git-lfs"
-`,
-			],
-		},
-		macos: {
-			file: "bash",
-			args: [
-				"-c",
-				`
-cd "${tempDir}" && \
-unzip -o "${installerPath}" -d "${tempDir}/git-lfs-extract" >/dev/null 2>&1 && \
-find "./git-lfs-extract" -type f -name "git-lfs" -exec cp {} "${depFolder}/git-lfs" \\; && \
-chmod +x "${depFolder}/git-lfs"
-`,
-			],
-		},
-		windows: {
-			file: "tar",
-			args: ["-xf", installerPath, "-C", tempDir],
-		},
-	};
-
-	const command = commands[platform];
-
-	if (!command) {
-		io.to(id).emit("installDep", {
-			type: "error",
-			content: `Unsupported platform: ${platform}`,
-		});
-		return { success: false };
-	}
-
-	io.to(id).emit("installDep", {
-		type: "log",
-		content: `Running installer for ${depName}...`,
-	});
-
-	const spawnOptions = {
-		cwd: tempDir,
-		shell: platform === "windows",
-		windowsHide: true,
-		detached: false,
-		env: {
-			...ENVIRONMENT,
-			PYTHONUNBUFFERED: "1",
-			NODE_NO_BUFFERING: "1",
-			FORCE_UNBUFFERED_OUTPUT: "1",
-			PYTHONIOENCODING: "UTF-8",
-		},
-	};
-
-	try {
-		await new Promise<void>((resolve, reject) => {
-			const child = spawn(command.file, command.args, spawnOptions);
-
-			child.stdout.on("data", (data) => {
-				io.to(id).emit("installDep", {
-					type: "log",
-					content: data.toString(),
-				});
-			});
-
-			child.stderr.on("data", (data) => {
-				io.to(id).emit("installDep", {
-					type: "error",
-					content: data.toString(),
-				});
-			});
-
-			child.on("close", (code) => {
-				if (code === 0) resolve();
-				else reject(new Error(`Extractor exited with code ${code}`));
-			});
-
-			child.on("error", (err) => {
-				reject(err);
-			});
-		});
-	} catch (error) {
-		io.to(id).emit("installDep", {
-			type: "error",
-			content: `Error running extractor for ${depName}: ${String(error)}`,
-		});
-		return { success: false };
-	}
-
-	let binaryPath = "";
-	const searchPattern = platform === "windows" ? "git-lfs.exe" : "git-lfs";
-
-	const stack: string[] = [tempDir];
-	while (stack.length) {
-		const current = stack.pop()!;
-		const entries = fs.readdirSync(current, { withFileTypes: true });
-		for (const entry of entries) {
-			const full = path.join(current, entry.name);
-			if (entry.isDirectory()) stack.push(full);
-			else if (entry.isFile() && entry.name === searchPattern) {
-				binaryPath = full;
-				break;
-			}
-		}
-		if (binaryPath) break;
-	}
-
-	if (!binaryPath) {
-		io.to(id).emit("installDep", {
-			type: "error",
-			content: `${searchPattern} not found after extraction`,
-		});
-		return { success: false };
-	}
-
-	try {
-		const targetPath = path.join(
-			depFolder,
-			platform === "windows" ? "git-lfs.exe" : "git-lfs",
+		await downloadVerifiedArtifact(artifact, artifactPath);
+		extractionStage = await extractVerifiedArchive(
+			artifactPath,
+			artifact,
+			tempDir,
 		);
-		fs.copyFileSync(binaryPath, targetPath);
-		fs.chmodSync(targetPath, 0o755);
+		const binaryName = platform === "windows" ? "git-lfs.exe" : "git-lfs";
+		const binaryPath = await findBinary(extractionStage, binaryName);
+		if (!binaryPath)
+			throw new Error(`${binaryName} was not found in the verified archive.`);
+		const targetPath = path.join(installStage, binaryName);
+		await fsp.copyFile(binaryPath, targetPath, fs.constants.COPYFILE_EXCL);
+		await fsp.chmod(targetPath, 0o755);
+		await promoteStagedDirectory(installStage, depFolder);
 	} catch (error) {
+		logger.error(`Secure installation failed for ${depName}:`, error);
 		io.to(id).emit("installDep", {
 			type: "error",
-			content: `Error copying binary for ${depName}: ${String(error)}`,
+			content: `Secure installation failed for ${depName}: ${String(error)}`,
 		});
 		return { success: false };
-	}
-
-	try {
-		if (fs.existsSync(installerPath)) {
-			fs.rmSync(installerPath, { force: true });
+	} finally {
+		await fsp.rm(downloadStage, { recursive: true, force: true });
+		await fsp.rm(installStage, { recursive: true, force: true });
+		if (extractionStage) {
+			await fsp.rm(extractionStage, { recursive: true, force: true });
 		}
-	} catch {}
+	}
 
 	addValue("PATH", depFolder);
-
 	io.to(id).emit("installDep", {
 		type: "log",
 		content: `${depName} installed successfully`,
 	});
-
 	return { success: true };
 }
 
 export async function uninstall(binFolder: string): Promise<void> {
 	const depFolder = path.join(binFolder, depName);
-	if (fs.existsSync(depFolder)) {
-		logger.info(`Removing ${depName} folder in ${depFolder}...`);
-		await closeFile(depFolder);
-		fs.rmSync(depFolder, { recursive: true, force: true });
-		logger.info(`Removing ${depName} from environment variables...`);
-		removeValue(depFolder, "PATH");
-		logger.info(`${depName} uninstalled successfully`);
-	} else {
+	if (!fs.existsSync(depFolder)) {
 		throw new Error(`Dependency ${depName} is not installed`);
 	}
+	logger.info(`Removing ${depName} folder in ${depFolder}...`);
+	await closeFile(depFolder);
+	fs.rmSync(depFolder, { recursive: true, force: true });
+	removeValue(depFolder, "PATH");
+	logger.info(`${depName} uninstalled successfully`);
 }

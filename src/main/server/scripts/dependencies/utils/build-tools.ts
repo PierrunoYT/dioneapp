@@ -2,12 +2,13 @@ import { execSync, spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import type { IncomingMessage } from "node:http";
-import https from "node:https";
 import os from "node:os";
 import path from "node:path";
-import { pipeline as streamPipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import {
+	type ArtifactMetadata,
+	downloadVerifiedArtifact,
+} from "@/server/scripts/dependencies/utils/verified-artifact";
 import logger from "@/server/utils/logger";
 
 type LogLevel = "info" | "warn" | "error";
@@ -66,10 +67,20 @@ interface AttemptInstallOptions {
 	signal?: AbortSignal;
 }
 
-const BUILD_TOOLS_URL = "https://aka.ms/vs/17/release/vs_BuildTools.exe";
+// The digest is encoded in and was cross-checked against Microsoft's immutable CDN URL.
+const BUILD_TOOLS_ARTIFACT: ArtifactMetadata = {
+	id: "vs_BuildTools.exe",
+	version: "17-release-2026-07-16",
+	url: "https://download.visualstudio.microsoft.com/download/pr/f7f5ecbc-83ca-4cf0-bdb2-aaf70efb6d97/ce7bb977accae1748191233d05ee6832a4b61a319419627bfcdbd818de5bfd68/vs_BuildTools.exe",
+	allowedHosts: ["download.visualstudio.microsoft.com"],
+	verification: {
+		type: "sha256",
+		sha256: "ce7bb977accae1748191233d05ee6832a4b61a319419627bfcdbd818de5bfd68",
+	},
+	maxDownloadBytes: 10 * 1024 * 1024,
+};
 const DEFAULT_SDK = "22621";
 const FALLBACK_SDK = "19041";
-const MAX_BOOTSTRAPPER_REDIRECTS = 5;
 const FILE_UNLOCK_TIMEOUT_MS = 60_000;
 const INSTALL_MUTEX_TIMEOUT_MS = 5 * 60 * 1000;
 const INSTALL_MUTEX_STALE_MS = 30 * 60 * 1000;
@@ -202,109 +213,12 @@ function encodeArgumentsToBase64(args: string[]): string {
 async function downloadBootstrapperExecutable(
 	targetPath: string,
 	onLog?: LogSink,
-	url: string = BUILD_TOOLS_URL,
-	redirectCount = 0,
 ): Promise<void> {
-	if (redirectCount === 0) {
-		logMessage(onLog, "Downloading Visual Studio Build Tools bootstrapper...");
-	}
-
-	await fsp.mkdir(path.dirname(targetPath), { recursive: true });
-
-	const response = await new Promise<IncomingMessage>((resolve, reject) => {
-		const request = https.get(
-			url,
-			{
-				headers: {
-					"User-Agent": "DioneApp/1.0 (BuildToolsInstaller)",
-				},
-			},
-			(res) => resolve(res),
-		);
-		request.on("error", (error) => reject(error));
-	});
-
-	if (
-		response.statusCode &&
-		[301, 302, 307, 308].includes(response.statusCode) &&
-		response.headers.location
-	) {
-		response.resume();
-		if (redirectCount >= MAX_BOOTSTRAPPER_REDIRECTS) {
-			throw new Error("Too many redirects while downloading bootstrapper.");
-		}
-		const nextUrl = new URL(response.headers.location, url).toString();
-		await downloadBootstrapperExecutable(
-			targetPath,
-			onLog,
-			nextUrl,
-			redirectCount + 1,
-		);
-		return;
-	}
-
-	if (response.statusCode !== 200) {
-		response.resume();
-		throw new Error(
-			`Failed to download bootstrapper: HTTP ${response.statusCode}`,
-		);
-	}
-
-	const tempPath = `${targetPath}.part`;
-	await fsp.rm(tempPath, { force: true }).catch(() => {});
-
-	let handle: fsp.FileHandle | undefined;
-	let writable: fs.WriteStream | undefined;
-	const cleanupPartial = async () => {
-		await fsp.rm(tempPath, { force: true }).catch(() => {});
-	};
-
-	try {
-		handle = await fsp.open(tempPath, "w", 0o644);
-		writable = fs.createWriteStream(tempPath, {
-			fd: handle.fd,
-			autoClose: false,
-		});
-
-		try {
-			await streamPipeline(response, writable);
-		} catch (pipelineError) {
-			writable.destroy();
-			writable = undefined;
-			throw pipelineError;
-		}
-
-		try {
-			await handle.sync();
-		} catch (error) {
-			const err = error as NodeJS.ErrnoException;
-			if (!(isWindows() && err?.code === "EPERM")) {
-				throw error;
-			}
-			logMessage(
-				onLog,
-				"fsync is not permitted on the bootstrapper descriptor (EPERM). Continuing without syncing.",
-				"warn",
-			);
-		}
-
-		await handle.close();
-		handle = undefined;
-
-		await fsp.rename(tempPath, targetPath);
-	} catch (error) {
-		response.destroy();
-		if (handle) {
-			try {
-				await handle.close();
-			} catch {}
-			handle = undefined;
-		}
-		writable?.destroy();
-		writable = undefined;
-		await cleanupPartial();
-		throw error;
-	}
+	logMessage(
+		onLog,
+		"Downloading and verifying Visual Studio Build Tools bootstrapper...",
+	);
+	await downloadVerifiedArtifact(BUILD_TOOLS_ARTIFACT, targetPath);
 }
 
 function unblockFile(filePath: string, onLog?: LogSink) {
@@ -863,10 +777,14 @@ try {
 			});
 
 			child.stdout?.setEncoding("utf8");
-			child.stdout?.on("data", (chunk) => (stdout += chunk));
+			child.stdout?.on("data", (chunk) => {
+				stdout += chunk;
+			});
 
 			child.stderr?.setEncoding("utf8");
-			child.stderr?.on("data", (chunk) => (stderr += chunk));
+			child.stderr?.on("data", (chunk) => {
+				stderr += chunk;
+			});
 
 			child.on("close", (code, signal) => {
 				exitCode = code ?? (signal ? 1 : 0);

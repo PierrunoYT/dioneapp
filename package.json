@@ -33,6 +33,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run check-locales && npm run typecheck:node && npm run typecheck:web",
     "check-locales": "tsx scripts/check-locales.ts",
+    "check-installer-security": "tsx scripts/check-installer-security.ts",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run check-licenses && npm run typecheck && electron-vite build",
