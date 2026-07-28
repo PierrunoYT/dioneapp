@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
 import logger from "@/server/utils/logger";
-import { createClient } from "@supabase/supabase-js";
+import { type SupabaseClient, createClient } from "@supabase/supabase-js";
 
-let supabase: ReturnType<typeof createClient> | null = null;
+let supabase: SupabaseClient<any> | null = null;
 
 try {
 	if (
@@ -14,7 +14,7 @@ try {
 			"Supabase not initialized. Set the public Supabase URL and anonymous key to enable database-backed features.",
 		);
 	} else {
-		supabase = createClient(
+		supabase = createClient<any>(
 			import.meta.env.VITE_PUBLIC_SUPABASE_URL,
 			import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY,
 			{

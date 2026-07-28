@@ -2,14 +2,9 @@ import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { sendDiscordReport } from "@/utils/discord-webhook";
-import {
-	isConfig,
-	readStoredJson,
-	type StoredConfig,
-} from "@/utils/local-storage";
 import { openLink } from "@/utils/open-link";
 import { CheckCircle, Loader2, TvMinimal, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function ErrorPage({ error }: { error?: Error }) {
@@ -18,28 +13,24 @@ export default function ErrorPage({ error }: { error?: Error }) {
 	const [reportStatus, setReportStatus] = useState<
 		"idle" | "pending" | "success" | "error" | "dev-mode"
 	>("idle");
-	const settings = readStoredJson<StoredConfig>("config", () => ({}), isConfig);
-
-	useEffect(() => {
-		if (error && settings.sendAnonymousReports) {
-			handleReportError();
-		}
-	}, [error]);
 
 	async function handleReportError() {
 		setReportStatus("pending");
-		const errorToSend = `${error?.message?.charAt(0).toUpperCase()}${error?.message?.slice(1)} \n\n [${error?.stack?.substring(0, 200)}]`;
-		const success = await sendDiscordReport(errorToSend, {
-			userReport: false,
-		});
+		const result = await sendDiscordReport(
+			error ?? "Unexpected renderer error",
+			{
+				userReport: false,
+			},
+		);
 
-		if (success === "dev-mode") {
+		if (result === "dev-mode") {
 			setReportStatus("dev-mode");
 			return;
 		}
-
-		if (success) {
+		if (result === "reported") {
 			setReportStatus("success");
+		} else if (result === "canceled") {
+			setReportStatus("idle");
 		} else {
 			setReportStatus("error");
 		}
@@ -56,22 +47,16 @@ export default function ErrorPage({ error }: { error?: Error }) {
 					<p className="text-neutral-400 text-xs max-w-sm text-center text-pretty">
 						{t("error.description")}
 					</p>
-					<div
-						className={`gap-2 flex justify-center items-center mt-6 ${settings.sendAnonymousReports ? "flex-col" : "flex"}`}
-					>
-						{(!settings.sendAnonymousReports ||
-							reportStatus === "success" ||
-							reportStatus === "error") && (
-							<Button
-								variant="primary"
-								size="md"
-								onClick={() => navigate(-1)}
-								className="px-4"
-							>
-								{t("error.return")}
-							</Button>
-						)}
-						{(settings.sendAnonymousReports || reportStatus !== "idle") && (
+					<div className="gap-2 flex justify-center items-center mt-6">
+						<Button
+							variant="primary"
+							size="md"
+							onClick={() => navigate(-1)}
+							className="px-4"
+						>
+							{t("error.return")}
+						</Button>
+						{reportStatus !== "idle" && (
 							<div className="absolute bottom-6 shadow-xl z-50">
 								<Button
 									variant="outline"
@@ -112,7 +97,7 @@ export default function ErrorPage({ error }: { error?: Error }) {
 								</Button>
 							</div>
 						)}
-						{!settings.sendAnonymousReports && reportStatus === "idle" && (
+						{reportStatus === "idle" && (
 							<Button
 								variant="secondary"
 								size="md"

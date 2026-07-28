@@ -19,7 +19,6 @@ export interface AppConfig {
 	compactMode: boolean;
 	layoutMode: "sidebar" | "topbar";
 	alwaysUninstallDependencies: boolean;
-	sendAnonymousReports: boolean;
 	enableDiscordRPC: boolean;
 	disableAutoUpdates: boolean;
 	enableSuccessSound: boolean;
@@ -42,7 +41,6 @@ const CONFIG_KEYS = new Set<keyof AppConfig>([
 	"compactMode",
 	"layoutMode",
 	"alwaysUninstallDependencies",
-	"sendAnonymousReports",
 	"enableDiscordRPC",
 	"disableAutoUpdates",
 	"enableSuccessSound",
@@ -210,7 +208,6 @@ export const defaultConfig: AppConfig = {
 	compactMode: false,
 	layoutMode: "sidebar",
 	alwaysUninstallDependencies: false,
-	sendAnonymousReports: true,
 	enableDiscordRPC: true,
 	disableAutoUpdates: false,
 	enableSuccessSound: true,

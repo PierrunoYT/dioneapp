@@ -25,7 +25,7 @@
     ]
   },
   "overrides": {
-    "axios": "1.8.2"
+    "axios": "1.18.1"
   },
   "scripts": {
     "format": "biome format --write ./src",
@@ -52,7 +52,10 @@
     "productName": "Dione",
     "compression": "maximum",
     "win": {
-      "target": ["nsis", "appx"],
+      "target": [
+        "nsis",
+        "appx"
+      ],
       "icon": "./resources/icon.png",
       "artifactName": "Dione-${version}-Installer-Windows.${ext}"
     },
@@ -67,7 +70,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "./resources/dione_liquidglass.icon",
@@ -86,15 +92,21 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "rpm",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "./resources/icon.png",
@@ -145,35 +157,32 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "@google/genai": "^1.32.0",
     "@lydell/node-pty": "^1.1.0",
     "@monaco-editor/react": "^4.7.0",
-    "@supabase/supabase-js": "2.49.4",
-    "@tailwindcss/typography": "^0.5.19",
-    "@tailwindcss/vite": "^4.1.17",
+    "@supabase/supabase-js": "^2.109.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "archiver": "^7.0.1",
     "class-variance-authority": "^0.7.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "electron-store": "^10.1.0",
-    "electron-updater": "^6.6.2",
+    "electron-updater": "^6.8.9",
     "express": "^5.2.1",
-    "file-type": "^21.1.1",
+    "file-type": "^21.3.4",
     "framer-motion": "^12.23.25",
     "get-port": "^7.1.0",
     "isomorphic-git": "^1.36.0",
+    "localtunnel": "^2.0.2",
     "lucide-react": "^0.523.0",
     "monaco-editor": "^0.53.0",
     "nanoid": "^5.1.6",
-    "node-machine-id": "^1.1.12",
-    "node-vibrant": "^4.0.3",
     "ollama": "^0.6.3",
     "pidtree": "^0.6.0",
     "qrcode.react": "^4.2.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.10.1",
+    "react-router-dom": "^7.18.1",
     "react-syntax-highlighter": "^16.1.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
@@ -181,31 +190,33 @@
     "remark-github-blockquote-alert": "^2.0.0",
     "semver": "^7.7.3",
     "simple-discord-rpc": "^1.0.1",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "systeminformation": "^5.30.0",
-    "tailwindcss": "^4.1.17",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "systeminformation": "^5.31.7",
     "winston": "^3.19.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@types/archiver": "^7.0.0",
+    "@google/genai": "^1.52.0",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/vite": "^4.1.17",
     "@types/localtunnel": "^2.0.4",
     "@types/node": "^22.19.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^37.10.3",
-    "electron-builder": "^26.3.5",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^3.1.0",
     "icon-gen": "^5.0.0",
-    "localtunnel": "^2.0.2",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1",
     "sharp": "^0.34.5",
+    "tailwindcss": "^4.1.17",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vite": "^6.4.1"
+    "vite": "^6.4.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

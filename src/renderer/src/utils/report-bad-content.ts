@@ -1,28 +1,14 @@
-import { apiFetch } from "./api";
+import { sendReportWithConsent } from "./discord-webhook";
 
 export const reportBadContent = async (
 	type: "script" | "ai",
 	script?: Record<string, any>,
 	ai?: Record<string, any>,
 ) => {
-	const report = {
+	const reported = await sendReportWithConsent({
 		type,
 		script,
 		ai,
-		timestamp: new Date().toISOString(),
-	};
-
-	const response = await apiFetch("/report", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(report),
 	});
-
-	if (!response.ok || response.status !== 200) {
-		return "error";
-	}
-
-	return "reported";
+	return reported;
 };

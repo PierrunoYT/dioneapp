@@ -3,14 +3,13 @@ import logger from "@/server/utils/logger";
 import type { Tunnel } from "localtunnel";
 import localtunnel from "localtunnel";
 import { nanoid } from "nanoid";
-import { machineIdSync } from "node-machine-id";
 
 let activeTunnel: Tunnel | null = null;
 let currentTunnelUrl: string | null = null;
 let currentShortUrl: string | null = null;
 let lifecycle = Promise.resolve();
 
-const urlCreationCache = new Map<string, number[]>();
+let urlCreationTimestamps: number[] = [];
 
 export interface TunnelInfo {
 	url: string;
@@ -124,17 +123,15 @@ export async function shortenUrl(url: string): Promise<string | null> {
 			return null;
 		}
 
-		const machineId = machineIdSync();
 		const now = Date.now();
-		const recentTimestamps = (urlCreationCache.get(machineId) || []).filter(
+		urlCreationTimestamps = urlCreationTimestamps.filter(
 			(timestamp) => now - timestamp < 60 * 60 * 1000,
 		);
-		if (recentTimestamps.length >= 10) {
+		if (urlCreationTimestamps.length >= 10) {
 			logger.warn("Rate limit exceeded for URL shortening (max 10 per hour)");
 			return null;
 		}
-		recentTimestamps.push(now);
-		urlCreationCache.set(machineId, recentTimestamps);
+		urlCreationTimestamps.push(now);
 
 		for (let attempts = 0; attempts < 5; attempts++) {
 			const shortId = nanoid(10);

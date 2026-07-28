@@ -24,7 +24,11 @@ import { resolveCanonicalAppPath } from "@/server/scripts/utils/paths";
 import { createSocketTicket, getBackendToken } from "@/server/security";
 import { start as startServer, stop as stopServer } from "@/server/server";
 import logger, { getLogs } from "@/server/utils/logger";
-import { exportDebugLogs } from "@/utils/export-logs";
+import {
+	exportDebugLogs,
+	formatDebugExportPreview,
+	prepareDebugExport,
+} from "@/utils/export-logs";
 import { getLocalNetworkIP } from "@/utils/network";
 import {
 	getCurrentTunnel,
@@ -50,7 +54,6 @@ import {
 	shell,
 } from "electron";
 import { autoUpdater } from "electron-updater";
-import { machineIdSync } from "node-machine-id";
 import si from "systeminformation";
 import { resizeTerminal } from "./server/scripts/process";
 
@@ -712,6 +715,9 @@ app.whenReady().then(async () => {
 				case "report.submit":
 					[method, requestPath] = ["POST", "/report"];
 					break;
+				case "report.preview":
+					[method, requestPath] = ["POST", "/report/preview"];
+					break;
 				case "dependencies.uninstall":
 					[method, requestPath] = ["POST", "/deps/uninstall"];
 					break;
@@ -1171,13 +1177,28 @@ app.whenReady().then(async () => {
 	// export debug logs
 	secureHandle("export-debug-logs", async () => {
 		try {
+			const diagnostics = await prepareDebugExport();
+			const consent = await dialog.showMessageBox({
+				type: "warning",
+				title: "Review Debug Export",
+				message: "Review and approve the diagnostic data to export",
+				detail: formatDebugExportPreview(diagnostics),
+				buttons: ["Cancel", "Continue to Save"],
+				defaultId: 0,
+				cancelId: 0,
+				noLink: true,
+			});
+			if (consent.response !== 1) {
+				return { success: false, canceled: true };
+			}
+
 			// show save dialog
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 			const result = await dialog.showSaveDialog({
-				title: "Save Debug Logs",
-				defaultPath: `dione-debug-${timestamp}.zip`,
+				title: "Save Redacted Debug Report",
+				defaultPath: `dione-debug-${timestamp}.txt`,
 				filters: [
-					{ name: "Zip Files", extensions: ["zip"] },
+					{ name: "Text Files", extensions: ["txt"] },
 					{ name: "All Files", extensions: ["*"] },
 				],
 			});
@@ -1188,7 +1209,7 @@ app.whenReady().then(async () => {
 			}
 
 			// export logs to the selected path
-			const zipPath = await exportDebugLogs(result.filePath);
+			const zipPath = await exportDebugLogs(result.filePath, diagnostics);
 
 			// show the file in explorer/finder
 			shell.showItemInFolder(zipPath);
@@ -1364,11 +1385,6 @@ app.whenReady().then(async () => {
 
 	secureHandle("get-logs", async () => {
 		return getLogs();
-	});
-
-	// Set up IPC handlers
-	secureHandle("get-hwid", () => {
-		return machineIdSync(true); // true for hashed version
 	});
 
 	// removed auth stuff to avoid security risks, read more in README.md

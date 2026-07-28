@@ -24,7 +24,6 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export interface StoredConfig extends Record<string, unknown> {
 	layoutMode?: "sidebar" | "topbar";
-	sendAnonymousReports?: boolean;
 	enableSuccessSound?: boolean;
 	compactMode?: boolean;
 }
@@ -34,8 +33,6 @@ export const isConfig = (value: unknown): value is StoredConfig =>
 	(value.layoutMode === undefined ||
 		value.layoutMode === "sidebar" ||
 		value.layoutMode === "topbar") &&
-	(value.sendAnonymousReports === undefined ||
-		typeof value.sendAnonymousReports === "boolean") &&
 	(value.enableSuccessSound === undefined ||
 		typeof value.enableSuccessSound === "boolean") &&
 	(value.compactMode === undefined || typeof value.compactMode === "boolean");

@@ -3,7 +3,6 @@ import type {
 	SetupSocketProps,
 } from "@/components/contexts/types/context-types";
 import successSound from "@/components/features/first-time/sounds/success.mp3";
-import { sendDiscordReport } from "@/utils/discord-webhook";
 import {
 	type StoredConfig,
 	isConfig,
@@ -293,11 +292,6 @@ export function setupSocket({
 
 			if (content?.toLowerCase().includes("error") || status === "error") {
 				errorRef.current[appId] = true;
-				if (getSettings().sendAnonymousReports && content) {
-					sendDiscordReport(content, {
-						userReport: false,
-					});
-				}
 			}
 
 			// get if app should search for a port or use catch label

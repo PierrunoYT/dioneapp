@@ -36,12 +36,17 @@ export default function ReportPage() {
 		setSubmitStatus("idle");
 
 		try {
-			const success = await sendDiscordReport("User Report", {
+			const result = await sendDiscordReport("User Report", {
 				UserDescription: description,
 				UserReport: true,
 			});
 
 			if (!isMountedRef.current) return;
+			if (result === "canceled") {
+				setSubmitStatus("idle");
+				return;
+			}
+			const success = result === "reported";
 			setSubmitStatus(success ? "success" : "error");
 			if (success) {
 				setDescription("");
@@ -85,40 +90,6 @@ export default function ReportPage() {
 							required
 							style={{ resize: "none" }}
 						/>
-					</div>
-
-					{/* system info */}
-					<div className="bg-white/5 p-6 rounded-xl border border-white/10">
-						<h3 className="text-lg font-medium">
-							{t("report.systemInformationTitle")}
-						</h3>
-						<p className="text-sm text-neutral-400 mb-4">
-							{t("report.disclaimer")}
-						</p>
-						<div className="grid grid-cols-2 gap-4 text-sm">
-							<div>
-								<span className="text-neutral-400">OS</span>
-								<span className="ml-2">{window.dione.runtime.platform}</span>
-							</div>
-							<div>
-								<span className="text-neutral-400">Node</span>
-								<span className="ml-2">
-									{window.dione.runtime.versions.node}
-								</span>
-							</div>
-							<div>
-								<span className="text-neutral-400">Electron</span>
-								<span className="ml-2">
-									{window.dione.runtime.versions.electron}
-								</span>
-							</div>
-							<div>
-								<span className="text-neutral-400">Chromium</span>
-								<span className="ml-2">
-									{window.dione.runtime.versions.chrome}
-								</span>
-							</div>
-						</div>
 					</div>
 
 					{/* submit button and status */}

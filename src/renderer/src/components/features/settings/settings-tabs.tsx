@@ -7,16 +7,10 @@ import {
 	Package,
 	Palette,
 	Settings2,
-	Shield,
 } from "lucide-react";
 import { useRef, useState } from "react";
 
-export type TabType =
-	| "applications"
-	| "interface"
-	| "notifications"
-	| "privacy"
-	| "other";
+export type TabType = "applications" | "interface" | "notifications" | "other";
 
 interface Tab {
 	id: TabType;
@@ -50,7 +44,6 @@ export default function SettingsTabs({
 			label: t("settings.notifications.title"),
 			icon: Bell,
 		},
-		{ id: "privacy", label: t("settings.privacy.title"), icon: Shield },
 		{ id: "other", label: t("settings.other.title"), icon: Settings2 },
 	];
 
@@ -102,8 +95,10 @@ export default function SettingsTabs({
 								layoutId="activeTab"
 								className="absolute inset-0 border rounded-xl"
 								style={{
-									background: `linear-gradient(to right, color-mix(in srgb, var(--theme-gradient-from) 20%, transparent), color-mix(in srgb, var(--theme-gradient-to) 20%, transparent))`,
-									borderColor: `color-mix(in srgb, var(--theme-accent) 30%, transparent)`,
+									background:
+										"linear-gradient(to right, color-mix(in srgb, var(--theme-gradient-from) 20%, transparent), color-mix(in srgb, var(--theme-gradient-to) 20%, transparent))",
+									borderColor:
+										"color-mix(in srgb, var(--theme-accent) 30%, transparent)",
 								}}
 								transition={{
 									type: "spring",

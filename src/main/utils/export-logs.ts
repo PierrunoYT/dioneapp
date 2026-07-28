@@ -1,185 +1,114 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { readConfig } from "@/config";
 import logger from "@/server/utils/logger";
-import archiver from "archiver";
+import { sanitizeDiagnosticText } from "@/utils/privacy";
 import { app } from "electron";
-import si from "systeminformation";
 
-/**
- * Collects system information for debugging purposes
- */
-async function collectSystemInfo(): Promise<string> {
+const ALLOWED_LOG_FILES = ["error.log", "server.log"];
+const MAX_LOG_BYTES = 128 * 1024;
+const MAX_TOTAL_LOG_BYTES = 256 * 1024;
+const MAX_LOG_LINE_BYTES = 4 * 1024;
+const MAX_PREVIEW_BYTES = 12 * 1024;
+
+export interface PreparedDebugExport {
+	systemInfo: string;
+	logs: Array<{ name: string; content: string }>;
+}
+
+function collectSystemInfo(): string {
+	const safeFields = {
+		generatedAt: new Date().toISOString(),
+		appVersion: app.getVersion(),
+		platform: process.platform,
+		architecture: process.arch,
+		nodeVersion: process.versions.node,
+		electronVersion: process.versions.electron,
+		chromiumVersion: process.versions.chrome,
+	};
+	return JSON.stringify(safeFields, null, 2);
+}
+
+function readLogTail(filePath: string): string {
+	const size = fs.statSync(filePath).size;
+	const bytesToRead = Math.min(size, MAX_LOG_BYTES * 2);
+	const buffer = Buffer.alloc(bytesToRead);
+	const descriptor = fs.openSync(filePath, "r");
 	try {
-		const [cpu, mem, osInfo, graphics, disk] = await Promise.all([
-			si.cpu(),
-			si.mem(),
-			si.osInfo(),
-			si.graphics(),
-			si.diskLayout(),
-		]);
-
-		const config = readConfig();
-
-		const systemInfo = `
-=== DIONE DEBUG INFORMATION ===
-Generated: ${new Date().toISOString()}
-
-=== APPLICATION INFO ===
-App Version: ${app.getVersion()}
-App Path: ${app.getAppPath()}
-User Data Path: ${app.getPath("userData")}
-Logs Path: ${app.getPath("logs")}
-Temp Path: ${app.getPath("temp")}
-Exe Path: ${app.getPath("exe")}
-
-=== CONFIGURATION ===
-${JSON.stringify(config, null, 2)}
-
-=== OPERATING SYSTEM ===
-Platform: ${osInfo.platform}
-Distro: ${osInfo.distro}
-Release: ${osInfo.release}
-Architecture: ${osInfo.arch}
-Hostname: ${osInfo.hostname}
-Kernel: ${osInfo.kernel}
-
-=== CPU ===
-Manufacturer: ${cpu.manufacturer}
-Brand: ${cpu.brand}
-Cores: ${cpu.cores}
-Physical Cores: ${cpu.physicalCores}
-Speed: ${cpu.speed} GHz
-
-=== MEMORY ===
-Total: ${(mem.total / 1024 / 1024 / 1024).toFixed(2)} GB
-Free: ${(mem.free / 1024 / 1024 / 1024).toFixed(2)} GB
-Used: ${(mem.used / 1024 / 1024 / 1024).toFixed(2)} GB
-Active: ${(mem.active / 1024 / 1024 / 1024).toFixed(2)} GB
-
-=== GRAPHICS ===
-${graphics.controllers
-	.map(
-		(gpu, i) => `
-GPU ${i + 1}:
-  Model: ${gpu.model}
-  Vendor: ${gpu.vendor}
-  VRAM: ${gpu.vram} MB
-  Driver Version: ${gpu.driverVersion}
-`,
-	)
-	.join("\n")}
-
-=== DISK ===
-${disk
-	.map(
-		(d, i) => `
-Disk ${i + 1}:
-  Type: ${d.type}
-  Name: ${d.name}
-  Size: ${(d.size / 1024 / 1024 / 1024).toFixed(2)} GB
-  Interface: ${d.interfaceType}
-`,
-	)
-	.join("\n")}
-
-=== NODE.JS ===
-Node Version: ${process.versions.node}
-V8 Version: ${process.versions.v8}
-Electron Version: ${process.versions.electron}
-Chrome Version: ${process.versions.chrome}
-
-=== ENVIRONMENT VARIABLES ===
-PATH: ${process.env.PATH}
-TEMP: ${process.env.TEMP}
-TMP: ${process.env.TMP}
-USERPROFILE: ${process.env.USERPROFILE}
-APPDATA: ${process.env.APPDATA}
-LOCALAPPDATA: ${process.env.LOCALAPPDATA}
-NODE_ENV: ${process.env.NODE_ENV}
-DIONE_BACKEND_PORT: ${process.env.DIONE_BACKEND_PORT}
-
-=== NETWORK ===
-Hostname: ${os.hostname()}
-Network Interfaces:
-${JSON.stringify(os.networkInterfaces(), null, 2)}
-`;
-
-		return systemInfo.trim();
-	} catch (error) {
-		logger.error("Error collecting system info:", error);
-		return `Error collecting system information: ${error}`;
+		fs.readSync(descriptor, buffer, 0, bytesToRead, size - bytesToRead);
+	} finally {
+		fs.closeSync(descriptor);
 	}
+	return buffer.toString("utf8");
+}
+
+function sanitizeLog(content: string, maxBytes: number): string {
+	const boundedLines = content
+		.split(/\r?\n/)
+		.map((line) => sanitizeDiagnosticText(line, MAX_LOG_LINE_BYTES))
+		.join("\n");
+	return sanitizeDiagnosticText(boundedLines, maxBytes);
+}
+
+export async function prepareDebugExport(): Promise<PreparedDebugExport> {
+	const logsDir = app.getPath("logs");
+	const logs: PreparedDebugExport["logs"] = [];
+	let remainingBytes = MAX_TOTAL_LOG_BYTES;
+
+	for (const name of ALLOWED_LOG_FILES) {
+		if (remainingBytes <= 0) break;
+		const filePath = path.join(logsDir, name);
+		if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
+		const content = sanitizeLog(
+			readLogTail(filePath),
+			Math.min(MAX_LOG_BYTES, remainingBytes),
+		);
+		remainingBytes -= Buffer.byteLength(content, "utf8");
+		logs.push({ name, content });
+	}
+
+	return { systemInfo: collectSystemInfo(), logs };
+}
+
+export function formatDebugExportPreview(data: PreparedDebugExport): string {
+	const logSummary = data.logs.length
+		? data.logs
+				.map(
+					(log) =>
+						`${log.name}: ${Buffer.byteLength(log.content, "utf8")} sanitized bytes`,
+				)
+				.join("\n")
+		: "No log files found";
+	const preview = `INCLUDED SYSTEM FIELDS (complete)\n${data.systemInfo}\n\nINCLUDED LOGS\n${logSummary}\n\nLOG CONTENT PREVIEW\n${data.logs
+		.map((log) => `--- ${log.name} ---\n${log.content}`)
+		.join(
+			"\n\n",
+		)}\n\nEXCLUDED\nConfiguration, database, environment variables, hostnames, network addresses, hardware details, device identifiers, and all other files.\n\nLIMITS\nEach line: 4 KiB; each log: 128 KiB; all logs: 256 KiB. Secrets, credentials, and sensitive paths are redacted before export.`;
+	return sanitizeDiagnosticText(preview, MAX_PREVIEW_BYTES);
+}
+
+function serializeDebugExport(data: PreparedDebugExport): string {
+	return `=== DIONE DEBUG REPORT ===\n\n=== SYSTEM INFORMATION ===\n${data.systemInfo}\n\n${data.logs
+		.map((log) => `=== ${log.name} ===\n${log.content}`)
+		.join("\n\n")}\n`;
 }
 
 /**
- * Exports all logs and system information as a zip file
- * @param destinationPath - The path where the zip file should be saved
- * @returns Path to the generated zip file
+ * Exports allowlisted, redacted, and size-capped diagnostics as a text file
+ * @param destinationPath - The path where the report should be saved
+ * @param data - The diagnostics the user previewed and approved
+ * @returns Path to the generated report
  */
 export async function exportDebugLogs(
 	destinationPath: string,
+	data: PreparedDebugExport,
 ): Promise<string> {
-	return new Promise(async (resolve, reject) => {
-		try {
-			const logsDir = app.getPath("logs");
-			const zipPath = destinationPath;
-
-			// create the zip archive
-			const output = fs.createWriteStream(zipPath);
-			const archive = archiver("zip", {
-				zlib: { level: 9 }, // max compression
-			});
-
-			// handle stream events
-			output.on("close", () => {
-				logger.info(
-					`Debug logs exported successfully: ${zipPath} (${archive.pointer()} bytes)`,
-				);
-				resolve(zipPath);
-			});
-
-			archive.on("error", (err) => {
-				logger.error("Error creating debug archive:", err);
-				reject(err);
-			});
-
-			// pipe archive data to the file
-			archive.pipe(output);
-
-			// collect system information
-			const systemInfo = await collectSystemInfo();
-			archive.append(systemInfo, { name: "system-info.txt" });
-
-			// add all log files from the logs directory
-			if (fs.existsSync(logsDir)) {
-				const logFiles = fs.readdirSync(logsDir);
-				for (const file of logFiles) {
-					const filePath = path.join(logsDir, file);
-					if (fs.statSync(filePath).isFile()) {
-						archive.file(filePath, { name: `logs/${file}` });
-					}
-				}
-			}
-
-			// add config file if it exists
-			const configPath = path.join(app.getPath("userData"), "config.json");
-			if (fs.existsSync(configPath)) {
-				archive.file(configPath, { name: "config.json" });
-			}
-
-			// add database file if it exists
-			const dbPath = path.join(app.getPath("userData"), "database.db");
-			if (fs.existsSync(dbPath)) {
-				archive.file(dbPath, { name: "database.db" });
-			}
-
-			// finalize the archive
-			await archive.finalize();
-		} catch (error) {
-			logger.error("Error exporting debug logs:", error);
-			reject(error);
-		}
+	const content = serializeDebugExport(data);
+	await fs.promises.writeFile(destinationPath, content, {
+		encoding: "utf8",
+		mode: 0o600,
 	});
+	logger.info(
+		`Debug report exported successfully (${Buffer.byteLength(content, "utf8")} bytes)`,
+	);
+	return destinationPath;
 }

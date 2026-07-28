@@ -171,7 +171,9 @@ export default function ActionsComponent({
 															appid: data?.id,
 															details: reportDetails,
 														});
-														setReportStatus(result);
+														setReportStatus(
+															result === "canceled" ? "" : result,
+														);
 													}}
 												>
 													{t("error.report.submit")}

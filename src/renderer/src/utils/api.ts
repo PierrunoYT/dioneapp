@@ -15,6 +15,7 @@ const STATIC_OPERATIONS: Record<string, string> = {
 	"PATCH /config": "config.patch",
 	"POST /config/reset": "config.reset",
 	"POST /report": "report.submit",
+	"POST /report/preview": "report.preview",
 	"POST /deps/uninstall": "dependencies.uninstall",
 	"POST /deps/in-use": "dependencies.inUse",
 	"GET /local/": "local.list",

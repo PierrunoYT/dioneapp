@@ -5,7 +5,6 @@ import ApplicationsTab from "@/components/features/settings/tabs/applications-ta
 import InterfaceTab from "@/components/features/settings/tabs/interface-tab";
 import NotificationsTab from "@/components/features/settings/tabs/notifications-tab";
 import OtherTab from "@/components/features/settings/tabs/other-tab";
-import PrivacyTab from "@/components/features/settings/tabs/privacy-tab";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, apiJson, getBackendPort } from "@/utils/api";
 import { joinPath } from "@/utils/path";
@@ -240,7 +239,6 @@ export default function Settings() {
 					variant: "success",
 					children: "Debug logs exported successfully",
 				});
-				console.log("Debug logs exported to:", result.path);
 			} else {
 				console.error("Failed to export debug logs:", result.error);
 				addToast({
@@ -285,9 +283,6 @@ export default function Settings() {
 
 			case "notifications":
 				return <NotificationsTab config={config} handleUpdate={handleUpdate} />;
-
-			case "privacy":
-				return <PrivacyTab config={config} handleUpdate={handleUpdate} />;
 
 			case "other":
 				return (
