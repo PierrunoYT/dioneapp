@@ -190,9 +190,9 @@ export async function uninstall(binFolder: string): Promise<void> {
 	const cacheDir = path.join(binFolder, "cache", depName);
 	if (fs.existsSync(depFolder)) {
 		logger.info(`Removing cache in ${cacheDir}...`);
-		fs.rmSync(cacheDir, { recursive: true, force: true });
+		await fs.promises.rm(cacheDir, { recursive: true, force: true });
 		logger.info(`Removing ${depName} folder in ${depFolder}...`);
-		fs.rmSync(depFolder, { recursive: true, force: true });
+		await fs.promises.rm(depFolder, { recursive: true, force: true });
 		removeValue(depFolder, "PATH");
 		removeKey("UV_CACHE_DIR");
 		logger.info(`${depName} uninstalled successfully`);

@@ -82,7 +82,8 @@ function validateCommands(commands: unknown, label: string): number {
 		const item = command as Record<string, unknown>;
 		if (
 			Object.keys(item).some(
-				(key) => !["command", "platform", "gpus", "customizable"].includes(key),
+				(key) =>
+					!["command", "platform", "gpus", "customizable", "cwd"].includes(key),
 			)
 		) {
 			throw new Error(`Unsupported manifest command property in ${label}`);
@@ -105,8 +106,14 @@ function validateCommands(commands: unknown, label: string): number {
 				throw new Error(`Invalid manifest GPUs in ${label}`);
 			}
 		}
-		if (item.customizable !== undefined && typeof item.customizable !== "boolean") {
+		if (
+			item.customizable !== undefined &&
+			typeof item.customizable !== "boolean"
+		) {
 			throw new Error(`Invalid customizable flag in ${label}`);
+		}
+		if (item.cwd !== undefined) {
+			assertString(item.cwd, `${label} working directory`, 512);
 		}
 	}
 	return commands.length;
@@ -162,16 +169,23 @@ function validateStep(value: unknown, label: string): number {
 	if (step.parallel !== undefined && typeof step.parallel !== "boolean")
 		throw new Error(`Invalid parallel flag in ${label}`);
 	if (step.env !== undefined) {
-		if (typeof step.env === "string") assertString(step.env, `${label} env`, 128);
+		if (typeof step.env === "string")
+			assertString(step.env, `${label} env`, 128);
 		else {
 			if (!step.env || typeof step.env !== "object" || Array.isArray(step.env))
 				throw new Error(`Invalid environment in ${label}`);
 			const env = step.env as Record<string, unknown>;
-			if (Object.keys(env).some((key) => !["name", "type", "version"].includes(key)))
+			if (
+				Object.keys(env).some(
+					(key) => !["name", "type", "version"].includes(key),
+				)
+			)
 				throw new Error(`Unsupported environment property in ${label}`);
 			assertString(env.name, `${label} environment name`, 128);
-			if (env.type !== undefined) assertString(env.type, `${label} environment type`, 32);
-			if (env.version !== undefined) assertString(env.version, `${label} environment version`, 32);
+			if (env.type !== undefined)
+				assertString(env.type, `${label} environment type`, 32);
+			if (env.version !== undefined)
+				assertString(env.version, `${label} environment version`, 32);
 		}
 	}
 	if (Array.isArray(step.steps))
@@ -217,13 +231,21 @@ export function validateManifestBytes(bytes: Buffer): Record<string, unknown> {
 		throw new Error("Manifest must declare the native_commands capability");
 	assertString(root.name, "name", 256);
 	if (root.requirements !== undefined) {
-		if (!root.requirements || typeof root.requirements !== "object" || Array.isArray(root.requirements))
+		if (
+			!root.requirements ||
+			typeof root.requirements !== "object" ||
+			Array.isArray(root.requirements)
+		)
 			throw new Error("Invalid manifest requirements");
 		const requirements = root.requirements as Record<string, unknown>;
 		if (Object.keys(requirements).some((key) => !["os", "gpus"].includes(key)))
 			throw new Error("Unsupported manifest requirement");
 		for (const [key, value] of Object.entries(requirements)) {
-			if (!Array.isArray(value) || value.length > 8 || value.some((item) => typeof item !== "string" || item.length > 32))
+			if (
+				!Array.isArray(value) ||
+				value.length > 8 ||
+				value.some((item) => typeof item !== "string" || item.length > 32)
+			)
 				throw new Error(`Invalid manifest requirement ${key}`);
 		}
 	}
@@ -238,7 +260,12 @@ export function validateManifestBytes(bytes: Buffer): Record<string, unknown> {
 	}
 	if (root.dependencies && typeof root.dependencies === "object") {
 		for (const [name, value] of Object.entries(root.dependencies)) {
-			if (!/^[A-Za-z0-9_-]{1,64}$/.test(name) || !value || typeof value !== "object" || Array.isArray(value))
+			if (
+				!/^[A-Za-z0-9_-]{1,64}$/.test(name) ||
+				!value ||
+				typeof value !== "object" ||
+				Array.isArray(value)
+			)
 				throw new Error("Invalid manifest dependency");
 			const dependency = value as Record<string, unknown>;
 			if (Object.keys(dependency).some((key) => key !== "version"))
@@ -272,7 +299,8 @@ function trustStore(): Record<string, string> {
 					typeof key !== "string" ||
 					key.length > 16_384,
 			)
-		) throw new Error();
+		)
+			throw new Error();
 		return parsed as Record<string, string>;
 	} catch {
 		throw new Error(
@@ -308,7 +336,11 @@ export async function verifyAndRecordRemoteManifest(
 	const signed = `dione-manifest-v1\nsha256:${actualHash}\nsource:${metadata.sourceUrl}\ncommit:${metadata.commit.toLowerCase()}\n`;
 	let valid = false;
 	try {
-		if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(metadata.publisherSignature))
+		if (
+			!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+				metadata.publisherSignature,
+			)
+		)
 			throw new Error();
 		const key = createPublicKey(publicKey);
 		if (key.asymmetricKeyType !== "ed25519") throw new Error();
@@ -340,7 +372,10 @@ async function writeReceipt(
 	receipt: TrustReceipt,
 ): Promise<void> {
 	const receiptPath = path.join(path.dirname(manifestPath), RECEIPT_FILE);
-	const temporary = path.join(path.dirname(receiptPath), `.${RECEIPT_FILE}.${randomUUID()}.tmp`);
+	const temporary = path.join(
+		path.dirname(receiptPath),
+		`.${RECEIPT_FILE}.${randomUUID()}.tmp`,
+	);
 	const handle = await fs.promises.open(temporary, "wx", 0o600);
 	try {
 		await handle.writeFile(`${JSON.stringify(receipt, null, 2)}\n`, "utf8");
@@ -349,7 +384,8 @@ async function writeReceipt(
 	}
 	try {
 		const existing = await fs.promises.lstat(receiptPath).catch(() => null);
-		if (existing?.isSymbolicLink()) throw new Error("Trust receipt symlink rejected");
+		if (existing?.isSymbolicLink())
+			throw new Error("Trust receipt symlink rejected");
 		await fs.promises.rename(temporary, receiptPath);
 	} catch (error) {
 		await fs.promises.rm(temporary, { force: true }).catch(() => {});
@@ -359,18 +395,25 @@ async function writeReceipt(
 
 async function readManifestNoFollow(manifestPath: string): Promise<Buffer> {
 	const stats = await fs.promises.lstat(manifestPath);
-	if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("Manifest must be a regular, non-symbolic-link file");
-	const handle = await fs.promises.open(manifestPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+	if (!stats.isFile() || stats.isSymbolicLink())
+		throw new Error("Manifest must be a regular, non-symbolic-link file");
+	const handle = await fs.promises.open(
+		manifestPath,
+		fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+	);
 	try {
 		const opened = await handle.stat();
-		if (!opened.isFile() || opened.size > MAX_MANIFEST_BYTES) throw new Error("Invalid manifest file");
+		if (!opened.isFile() || opened.size > MAX_MANIFEST_BYTES)
+			throw new Error("Invalid manifest file");
 		return await handle.readFile();
 	} finally {
 		await handle.close();
 	}
 }
 
-export async function createLocalApproval(manifestPath: string): Promise<string> {
+export async function createLocalApproval(
+	manifestPath: string,
+): Promise<string> {
 	const bytes = await readManifestNoFollow(manifestPath);
 	validateManifestBytes(bytes);
 	const nonce = randomBytes(32).toString("base64url");
@@ -382,15 +425,23 @@ export async function createLocalApproval(manifestPath: string): Promise<string>
 	return nonce;
 }
 
-export async function consumeLocalApproval(manifestPath: string, nonce: string): Promise<void> {
+export async function consumeLocalApproval(
+	manifestPath: string,
+	nonce: string,
+): Promise<void> {
 	const approval = localApprovalNonces.get(nonce);
 	localApprovalNonces.delete(nonce);
-	if (!approval || approval.expiresAt < Date.now() || approval.manifestPath !== path.resolve(manifestPath))
+	if (
+		!approval ||
+		approval.expiresAt < Date.now() ||
+		approval.manifestPath !== path.resolve(manifestPath)
+	)
 		throw new Error("Local manifest approval is invalid or expired");
 	const bytes = await readManifestNoFollow(manifestPath);
 	validateManifestBytes(bytes);
 	const hash = sha256(bytes);
-	if (hash !== approval.manifestSha256) throw new Error("Local manifest changed after approval");
+	if (hash !== approval.manifestSha256)
+		throw new Error("Local manifest changed after approval");
 	approvedLocalManifestHashes.add(`${path.resolve(manifestPath)}\0${hash}`);
 }
 
@@ -428,15 +479,31 @@ export async function loadTrustedManifest(
 			"Manifest trust receipt is invalid or the manifest changed after verification",
 		);
 	}
-	if (!receipt.publisherKeyId || !receipt.publisherSignature || !receipt.sourceUrl || !receipt.commit) {
+	if (
+		!receipt.publisherKeyId ||
+		!receipt.publisherSignature ||
+		!receipt.sourceUrl ||
+		!receipt.commit
+	) {
 		throw new Error("Publisher trust receipt is incomplete");
 	}
 	const publicKey = trustStore()[receipt.publisherKeyId];
-	if (!publicKey) throw new Error(`Publisher key '${receipt.publisherKeyId}' is no longer trusted`);
+	if (!publicKey)
+		throw new Error(
+			`Publisher key '${receipt.publisherKeyId}' is no longer trusted`,
+		);
 	const key = createPublicKey(publicKey);
-	if (key.asymmetricKeyType !== "ed25519") throw new Error("Publisher key is not Ed25519");
+	if (key.asymmetricKeyType !== "ed25519")
+		throw new Error("Publisher key is not Ed25519");
 	const signed = `dione-manifest-v1\nsha256:${receipt.manifestSha256}\nsource:${receipt.sourceUrl}\ncommit:${receipt.commit}\n`;
-	if (!verify(null, Buffer.from(signed), key, Buffer.from(receipt.publisherSignature, "base64")))
+	if (
+		!verify(
+			null,
+			Buffer.from(signed),
+			key,
+			Buffer.from(receipt.publisherSignature, "base64"),
+		)
+	)
 		throw new Error("Publisher trust receipt signature is invalid");
 	return manifest;
 }

@@ -1,4 +1,4 @@
-import fs from "fs";
+import fs from "node:fs";
 import path from "node:path";
 import git from "isomorphic-git";
 import type {
@@ -26,11 +26,13 @@ function validateGitUrl(value: string): URL {
 
 async function collectBody(
 	body: GitHttpRequest["body"],
+	signal?: AbortSignal,
 ): Promise<Uint8Array | undefined> {
 	if (!body) return undefined;
 	const chunks: Uint8Array[] = [];
 	let length = 0;
 	for await (const chunk of body) {
+		if (signal?.aborted) throw signal.reason;
 		chunks.push(chunk);
 		length += chunk.byteLength;
 	}
@@ -43,18 +45,20 @@ async function collectBody(
 	return result;
 }
 
-const restrictedHttp: HttpClient = {
+const createRestrictedHttp = (signal?: AbortSignal): HttpClient => ({
 	request: async (request): Promise<GitHttpResponse> => {
 		let currentUrl = validateGitUrl(request.url);
 		let method = request.method ?? "GET";
-		let body = await collectBody(request.body);
+		let body = await collectBody(request.body, signal);
 
 		for (let redirects = 0; redirects <= 5; redirects++) {
+			if (signal?.aborted) throw signal.reason;
 			const response = await fetch(currentUrl, {
 				method,
 				headers: request.headers,
 				body: body as BodyInit | undefined,
 				redirect: "manual",
+				signal,
 			});
 			if ([301, 302, 303, 307, 308].includes(response.status)) {
 				const location = response.headers.get("location");
@@ -87,14 +91,16 @@ const restrictedHttp: HttpClient = {
 		}
 		throw new Error("Git request exceeded the redirect limit");
 	},
-};
+});
 
 export async function useGit(
 	command: string,
 	workingDir: string,
 	io: Server,
 	id: string,
+	signal?: AbortSignal,
 ) {
+	if (signal?.aborted) throw signal.reason;
 	const isCloneCommand = /^git\s+clone(?:\s|$)/.test(command.trim());
 
 	if (isCloneCommand) {
@@ -118,6 +124,7 @@ export async function useGit(
 			}
 		}
 		if (!url) throw new Error("A valid HTTPS Git clone URL is required");
+		const approvedUrl = url;
 		if (
 			folder &&
 			(folder.startsWith("-") ||
@@ -129,7 +136,7 @@ export async function useGit(
 
 		const root = path.resolve(workingDir);
 		const repositoryName = path.posix
-			.basename(new URL(url).pathname)
+			.basename(new URL(approvedUrl).pathname)
 			.replace(/\.git$/, "");
 		const destination = path.resolve(root, folder || repositoryName);
 		const relativeDestination = path.relative(root, destination);
@@ -187,7 +194,7 @@ export async function useGit(
 		// clone the repository
 		io.to(id).emit("installUpdate", {
 			type: "log",
-			content: `Cloning repository ${url} ${folder ? `to ${workingDir}/${folder}` : ""}${branch ? ` on branch ${branch}` : ""}\n`,
+			content: `Cloning repository ${approvedUrl} ${folder ? `to ${workingDir}/${folder}` : ""}${branch ? ` on branch ${branch}` : ""}\n`,
 		});
 
 		let lastError: any = null;
@@ -196,15 +203,17 @@ export async function useGit(
 		let lastProgressEmit = 0;
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
+				if (signal?.aborted) throw signal.reason;
 				await git.clone({
 					fs,
-					http: restrictedHttp,
+					http: createRestrictedHttp(signal),
 					dir: destination,
-					url: url!,
+					url: approvedUrl,
 					singleBranch: true,
 					ref: refToTry,
 					batchSize: 10,
 					onProgress: (progress) => {
+						if (signal?.aborted) throw signal.reason;
 						const now = Date.now();
 						if (now - lastProgressEmit > 100) {
 							lastProgressEmit = now;
@@ -242,7 +251,6 @@ export async function useGit(
 					refToTry = "master";
 					await fs.promises.rm(destination, { recursive: true, force: true });
 					await fs.promises.mkdir(destination);
-					continue;
 				} else {
 					break;
 				}

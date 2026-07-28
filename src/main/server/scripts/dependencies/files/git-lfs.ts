@@ -215,7 +215,7 @@ export async function uninstall(binFolder: string): Promise<void> {
 	}
 	logger.info(`Removing ${depName} folder in ${depFolder}...`);
 	await closeFile(depFolder);
-	fs.rmSync(depFolder, { recursive: true, force: true });
+	await fs.promises.rm(depFolder, { recursive: true, force: true });
 	removeValue(depFolder, "PATH");
 	logger.info(`${depName} uninstalled successfully`);
 }

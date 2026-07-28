@@ -27,6 +27,8 @@ export class MissingDependenciesError extends Error {
 	}
 }
 
+const MANIFEST_COMMAND_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
 async function patchNetworkAccess(configDir: string) {
 	try {
 		const files = await fs.promises.readdir(configDir, { withFileTypes: true });
@@ -110,9 +112,9 @@ export default async function executeInstallation(
 			}
 
 			if (step.commands && step.commands.length > 0) {
-				const commandsArray: string[] = Array.isArray(step.commands)
+				const commandsArray = Array.isArray(step.commands)
 					? step.commands
-					: [step.commands.toString()];
+					: [step.commands];
 
 				// Process variables if present
 				let customEnv: Record<string, string> = {};
@@ -165,6 +167,7 @@ export default async function executeInstallation(
 						needsBuildTools,
 						{
 							customEnv,
+							commandTimeoutMs: MANIFEST_COMMAND_TIMEOUT_MS,
 							onProgress: (progress: number) => {
 								emitRunProgress(io, id, {
 									type: "step_progress",
@@ -185,6 +188,7 @@ export default async function executeInstallation(
 						needsBuildTools,
 						{
 							customEnv,
+							commandTimeoutMs: MANIFEST_COMMAND_TIMEOUT_MS,
 							onProgress: (progress: number) => {
 								emitRunProgress(io, id, {
 									type: "step_progress",
@@ -404,16 +408,9 @@ export async function executeStartup(
 
 			emitRunProgress(io, id, { type: "step_started", runId, id: stepId });
 
-			const commandsArray: string[] = step.commands.map((cmd: any) => {
-				let commandStr: string;
-
-				if (typeof cmd === "object") {
-					commandStr = cmd.command;
-				} else {
-					commandStr = cmd.toString();
-				}
-				return commandStr;
-			});
+			const commandsArray = Array.isArray(step.commands)
+				? step.commands
+				: [step.commands];
 
 			// Process variables if present
 			let customEnv: Record<string, string> = {};
@@ -501,6 +498,7 @@ export async function executeStartup(
 					{
 						customEnv,
 						onOutput: outputHandler,
+						commandTimeoutMs: MANIFEST_COMMAND_TIMEOUT_MS,
 						onProgress: (progress: number) => {
 							emitRunProgress(io, id, {
 								type: "step_progress",
@@ -521,6 +519,7 @@ export async function executeStartup(
 					{
 						customEnv,
 						onOutput: outputHandler,
+						commandTimeoutMs: MANIFEST_COMMAND_TIMEOUT_MS,
 						onProgress: (progress: number) => {
 							emitRunProgress(io, id, {
 								type: "step_progress",

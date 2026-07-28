@@ -1,3 +1,5 @@
+import { type ChildProcess, execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { arch, platform as getPlatform } from "node:os";
 import path from "node:path";
@@ -8,76 +10,104 @@ import {
 import BuildToolsManager from "@/server/scripts/dependencies/utils/build-tools-manager";
 import { getSystemInfo } from "@/server/scripts/system";
 import logger from "@/server/utils/logger";
-import pty from "@lydell/node-pty";
+import pty, { type IPty } from "@lydell/node-pty";
+import pidtree from "pidtree";
 import type { Server } from "socket.io";
 import { useGit } from "../utils/use-git";
 
+const DEFAULT_COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const PROCESS_GRACE_MS = 3_000;
+const PROCESS_ESCALATION_MS = 2_000;
+const MAX_CAPTURED_OUTPUT_BYTES = 1024 * 1024;
+const MAX_PENDING_SOCKET_BYTES = 64 * 1024;
+const MAX_SOCKET_BATCH_BYTES = 16 * 1024;
+const SOCKET_FLUSH_INTERVAL_MS = 100;
+
+export interface ProcessCommand {
+	command?: string;
+	file?: string;
+	args?: string[];
+	cwd?: string;
+	env?: Record<string, string>;
+	displayCommand?: string;
+	platform?: string;
+	gpus?: string | string[];
+}
+
+interface OperationState {
+	appId: string;
+	id: string;
+	controller: AbortController;
+	removeParentAbort?: () => void;
+}
+
+interface ManagedProcess {
+	appId: string;
+	operationId: string;
+	pid: number;
+	pty?: IPty;
+	child?: ChildProcess;
+	exited: Promise<void>;
+	rootExited: boolean;
+	knownPids: Set<number>;
+	terminating?: Promise<void>;
+}
+
 export const log = (io: Server, id: string, content: string, type?: string) => {
-	if (!type) {
-		type = "installUpdate";
-	}
-	io.to(id).emit(type, {
+	io.to(id).emit(type || "installUpdate", {
 		type: "log",
 		content: `${content}\r\n`,
 	});
 };
 
-const activeProcesses = new Set<any>();
-const activePIDs = new Set<number>();
+const activeProcesses = new Map<number, ManagedProcess>();
 const processesByApp = new Map<string, Set<number>>();
 const processesDimensions = new Map<string, { cols: number; rows: number }>();
+const operationsByApp = new Map<string, Map<string, OperationState>>();
 
 export const cleanTerminalByID = (id: string): void => {
 	const pids = processesByApp.get(id);
 	if (!pids) return;
 
-	pids.forEach((pid) => {
-		activeProcesses.forEach((proc) => {
-			if (proc?.pid === pid) {
-				try {
-					proc.write("\u001bc");
-				} catch (e) {
-					logger.warn(`Failed to clear process ${pid}: ${e}`);
-				}
-			}
-		});
-	});
+	for (const pid of pids) {
+		const proc = activeProcesses.get(pid)?.pty;
+		if (!proc) continue;
+		try {
+			proc.write("\u001bc");
+		} catch (error) {
+			logger.warn(`Failed to clear process ${pid}: ${error}`);
+		}
+	}
 };
 
 export const resizeTerminal = (id: string, cols: number, rows: number) => {
 	processesDimensions.set(id, { cols, rows });
 	const pids = getTrackedPIDs(id);
-	pids.forEach((pid) => {
-		activeProcesses.forEach((proc) => {
-			if (proc?.pid === pid && typeof proc.resize === "function") {
-				try {
-					proc.resize(cols, rows);
-				} catch (e) {
-					logger.warn(`Failed to resize process ${pid}: ${e}`);
-				}
-			}
-		});
-	});
+	for (const pid of pids) {
+		const proc = activeProcesses.get(pid)?.pty;
+		if (!proc) continue;
+		try {
+			proc.resize(cols, rows);
+		} catch (error) {
+			logger.warn(`Failed to resize process ${pid}: ${error}`);
+		}
+	}
 };
 
-const registerProcess = (appId: string, pid: number) => {
-	if (!appId || !pid) return;
-	activePIDs.add(pid);
+const trackProcess = (process: ManagedProcess) => {
+	activeProcesses.set(process.pid, process);
+	const { appId, pid } = process;
 	const set = processesByApp.get(appId) ?? new Set<number>();
 	set.add(pid);
 	processesByApp.set(appId, set);
 
 	const dims = processesDimensions.get(appId);
-	if (dims) {
-		activeProcesses.forEach((proc) => {
-			if (proc?.pid === pid && typeof proc.resize === "function") {
-				try {
-					proc.resize(dims.cols, dims.rows);
-				} catch (e) {
-					logger.warn(`Failed to resize process ${pid} on register: ${e}`);
-				}
-			}
-		});
+	if (dims && process.pty) {
+		try {
+			process.pty.resize(dims.cols, dims.rows);
+		} catch (error) {
+			logger.warn(`Failed to resize process ${pid} on register: ${error}`);
+		}
 	}
 };
 
@@ -91,9 +121,7 @@ const sanitizePathForLog = (p?: string) => {
 };
 
 const unregisterProcess = (appId: string, pid: number) => {
-	if (pid) {
-		activePIDs.delete(pid);
-	}
+	activeProcesses.delete(pid);
 	if (!appId || !processesByApp.has(appId)) return;
 	const set = processesByApp.get(appId);
 	set?.delete(pid);
@@ -106,59 +134,253 @@ const getTrackedPIDs = (appId?: string): number[] => {
 	if (appId && processesByApp.has(appId)) {
 		return Array.from(processesByApp.get(appId) ?? []);
 	}
-	return Array.from(activePIDs);
+	return Array.from(activeProcesses.keys());
 };
 
-const dropProcesses = async (id?: string, pid?: number) => {
-	if (pid) {
-		activeProcesses.forEach((proc) => {
-			if (proc?.pid === pid) {
-				try {
-					proc.write("\x03");
-					setTimeout(() => proc.kill(), 50);
-				} catch (e) {
-					logger.warn(`Failed to kill process ${pid}: ${e}`);
-				}
-				activeProcesses.delete(proc);
-			}
-		});
-		unregisterProcess(id!, pid);
-	} else if (id) {
-		const pids = processesByApp.get(id);
-		logger.info(`Process managed by ${id}: ${pids}`);
-		if (!pids || pids.size === 0) {
-			logger.info(`No processes managed by ${id}`);
-			return;
-		}
-		if (pids) {
-			for (const trackedPID of pids) {
-				activeProcesses.forEach((proc) => {
-					if (proc?.pid === trackedPID) {
-						try {
-							proc.write("\x03");
-							setTimeout(() => proc.kill(), 50);
-							logger.info(`Killed process ${trackedPID}`);
-						} catch (e) {
-							logger.warn(`Failed to kill process ${trackedPID}: ${e}`);
-							throw e;
-						}
-						activeProcesses.delete(proc);
-					}
-				});
-				activePIDs.delete(trackedPID);
-			}
-			processesByApp.delete(id);
+function beginOperation(
+	appId: string,
+	parentSignal?: AbortSignal,
+): OperationState {
+	const state: OperationState = {
+		appId,
+		id: randomUUID(),
+		controller: new AbortController(),
+	};
+	if (parentSignal) {
+		const abort = () => state.controller.abort(parentSignal.reason);
+		if (parentSignal.aborted) abort();
+		else {
+			parentSignal.addEventListener("abort", abort, { once: true });
+			state.removeParentAbort = () =>
+				parentSignal.removeEventListener("abort", abort);
 		}
 	}
+	const operations = operationsByApp.get(appId) ?? new Map();
+	operations.set(state.id, state);
+	operationsByApp.set(appId, operations);
+	return state;
+}
+
+function finishOperation(state: OperationState): void {
+	state.removeParentAbort?.();
+	const operations = operationsByApp.get(state.appId);
+	if (operations?.get(state.id) !== state) return;
+	operations.delete(state.id);
+	if (operations.size === 0) operationsByApp.delete(state.appId);
+}
+
+function abortAppOperations(appId?: string): void {
+	const groups = appId
+		? [operationsByApp.get(appId)]
+		: Array.from(operationsByApp.values());
+	for (const operations of groups) {
+		for (const operation of operations?.values() ?? []) {
+			operation.controller.abort(new Error("Operation cancelled"));
+		}
+	}
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+async function getOwnedProcessTree(pid: number): Promise<number[]> {
+	try {
+		const pids = await pidtree(pid, { root: true });
+		return Array.from(new Set(pids.filter(Number.isSafeInteger)));
+	} catch {
+		if (process.platform === "win32") {
+			try {
+				const script =
+					"$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress";
+				const stdout = await new Promise<string>((resolve, reject) => {
+					execFile(
+						"powershell.exe",
+						["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+						{ timeout: 3_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+						(error, output) => {
+							if (error) reject(error);
+							else resolve(output);
+						},
+					);
+				});
+				const parsed = JSON.parse(stdout) as
+					| Record<string, unknown>
+					| Array<Record<string, unknown>>;
+				const children = new Map<number, number[]>();
+				for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
+					const processId = Number(entry.ProcessId);
+					const parentId = Number(entry.ParentProcessId);
+					if (
+						!Number.isSafeInteger(processId) ||
+						!Number.isSafeInteger(parentId)
+					) {
+						continue;
+					}
+					const siblings = children.get(parentId) ?? [];
+					siblings.push(processId);
+					children.set(parentId, siblings);
+				}
+				const result = [pid];
+				const seen = new Set(result);
+				for (let index = 0; index < result.length; index++) {
+					for (const child of children.get(result[index]) ?? []) {
+						if (seen.has(child)) continue;
+						seen.add(child);
+						result.push(child);
+					}
+				}
+				return result;
+			} catch (error) {
+				logger.warn(
+					`Failed to enumerate Windows process tree ${pid}: ${error}`,
+				);
+			}
+		}
+		return isProcessAlive(pid) ? [pid] : [];
+	}
+}
+
+function signalProcessTree(
+	pids: number[],
+	rootPid: number,
+	signal: NodeJS.Signals,
+) {
+	const ordered = [
+		...pids.filter((pid) => pid !== rootPid).reverse(),
+		...(pids.includes(rootPid) ? [rootPid] : []),
+	];
+	for (const pid of ordered) {
+		try {
+			process.kill(pid, signal);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+				logger.warn(`Failed to signal owned process ${pid}: ${error}`);
+			}
+		}
+	}
+}
+
+async function waitForProcessTreeExit(
+	pids: number[],
+	timeoutMs: number,
+): Promise<number[]> {
+	const deadline = Date.now() + timeoutMs;
+	let survivors = pids.filter(isProcessAlive);
+	while (survivors.length > 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		survivors = survivors.filter(isProcessAlive);
+	}
+	return survivors;
+}
+
+async function terminateManagedProcess(managed: ManagedProcess): Promise<void> {
+	if (managed.terminating) return managed.terminating;
+	const termination = (async () => {
+		const refreshedPids = await getOwnedProcessTree(managed.pid);
+		const ownedPids = Array.from(
+			new Set([...managed.knownPids, ...refreshedPids]),
+		).filter(isProcessAlive);
+		managed.knownPids = new Set(ownedPids);
+		if (managed.pty) {
+			try {
+				managed.pty.write("\x03");
+			} catch (error) {
+				logger.warn(`Failed to interrupt process ${managed.pid}: ${error}`);
+			}
+		}
+		if (
+			ownedPids.length > 0 &&
+			(process.platform !== "win32" || !managed.pty)
+		) {
+			signalProcessTree(ownedPids, managed.pid, "SIGTERM");
+		}
+		let survivors = await waitForProcessTreeExit(ownedPids, PROCESS_GRACE_MS);
+		if (survivors.length > 0) {
+			const refreshed = await getOwnedProcessTree(managed.pid);
+			survivors = Array.from(new Set([...survivors, ...refreshed])).filter(
+				isProcessAlive,
+			);
+			managed.knownPids = new Set(survivors);
+			signalProcessTree(survivors, managed.pid, "SIGKILL");
+			survivors = await waitForProcessTreeExit(
+				survivors,
+				PROCESS_ESCALATION_MS,
+			);
+		}
+		if (survivors.length > 0) {
+			managed.knownPids = new Set(survivors);
+			throw new Error(
+				`Owned process tree did not stop: ${survivors.join(", ")}`,
+			);
+		}
+		unregisterProcess(managed.appId, managed.pid);
+		logger.info(`Stopped owned process tree rooted at ${managed.pid}`);
+	})();
+	managed.terminating = termination;
+	try {
+		await termination;
+	} catch (error) {
+		if (managed.terminating === termination) managed.terminating = undefined;
+		throw error;
+	}
+}
+
+const dropProcesses = async (
+	id?: string,
+	pid?: number,
+	operationId?: string,
+) => {
+	const managed = Array.from(activeProcesses.values()).filter(
+		(process) =>
+			(!id || process.appId === id) &&
+			(!pid || process.pid === pid) &&
+			(!operationId || process.operationId === operationId),
+	);
+	if (pid && managed.length === 0) {
+		throw new Error(`Process ${pid} is not owned by app ${id ?? "unknown"}`);
+	}
+	await Promise.all(managed.map(terminateManagedProcess));
 };
-let processWasCancelled = false;
+
+export function registerOwnedChildProcess(
+	appId: string,
+	child: ChildProcess,
+): void {
+	if (!child.pid)
+		throw new Error("Cannot register a child process without a PID");
+	let resolveExit: () => void = () => {};
+	const exited = new Promise<void>((resolve) => {
+		resolveExit = resolve;
+	});
+	const managed: ManagedProcess = {
+		appId,
+		operationId: `${appId}:service`,
+		pid: child.pid,
+		child,
+		exited,
+		rootExited: false,
+		knownPids: new Set([child.pid]),
+	};
+	child.once("exit", () => {
+		managed.rootExited = true;
+		resolveExit();
+		if (!managed.terminating) unregisterProcess(appId, managed.pid);
+	});
+	trackProcess(managed);
+}
 
 export const stopActiveProcess = async (
 	io: Server,
 	id: string,
 	pid?: number,
 ) => {
-	processWasCancelled = true;
+	abortAppOperations(id);
 
 	if (pid) {
 		log(io, id, `Killing process with id ${pid}`);
@@ -172,38 +394,240 @@ export const stopActiveProcess = async (
 	return true;
 };
 
+export const stopAllActiveProcesses = async (): Promise<void> => {
+	abortAppOperations();
+	await dropProcesses();
+};
+
+export function appendBoundedOutput(
+	current: string,
+	incoming: string,
+	maxBytes = MAX_CAPTURED_OUTPUT_BYTES,
+): string {
+	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+		throw new Error("Output limit must be a positive integer");
+	}
+	const combined = Buffer.from(current + incoming);
+	if (combined.byteLength <= maxBytes) return combined.toString();
+	let start = combined.byteLength - maxBytes;
+	while (start < combined.byteLength && (combined[start] & 0xc0) === 0x80) {
+		start++;
+	}
+	return combined.subarray(start).toString();
+}
+
+function splitOutputBatch(value: string, maxBytes: number): [string, string] {
+	let bytes = 0;
+	let end = 0;
+	for (const character of value) {
+		const characterBytes = Buffer.byteLength(character);
+		if (bytes + characterBytes > maxBytes) break;
+		bytes += characterBytes;
+		end += character.length;
+	}
+	return [value.slice(0, end), value.slice(end)];
+}
+
+class RateLimitedSocketOutput {
+	private pending = "";
+	private timer?: ReturnType<typeof setTimeout>;
+	private dropped = false;
+
+	constructor(
+		private readonly emit: (content: string) => void,
+		private readonly maxPendingBytes = MAX_PENDING_SOCKET_BYTES,
+	) {}
+
+	write(content: string): void {
+		if (
+			Buffer.byteLength(this.pending) + Buffer.byteLength(content) >
+			this.maxPendingBytes
+		) {
+			this.dropped = true;
+		}
+		this.pending = appendBoundedOutput(
+			this.pending,
+			content,
+			this.maxPendingBytes,
+		);
+		this.schedule();
+	}
+
+	close(): void {
+		if (this.timer) clearTimeout(this.timer);
+		this.timer = undefined;
+		while (this.pending) this.flush(false);
+		if (this.dropped) {
+			this.emit("\r\n[Output truncated by Dione]\r\n");
+		}
+		this.dropped = false;
+	}
+
+	private schedule(): void {
+		if (this.timer) return;
+		this.timer = setTimeout(() => {
+			this.timer = undefined;
+			this.flush(true);
+		}, SOCKET_FLUSH_INTERVAL_MS);
+	}
+
+	private flush(reschedule: boolean): void {
+		const [batch, remainder] = splitOutputBatch(
+			this.pending,
+			MAX_SOCKET_BATCH_BYTES,
+		);
+		this.pending = remainder;
+		if (batch) this.emit(batch);
+		if (reschedule && this.pending) this.schedule();
+	}
+}
+
+export async function resolveContainedWorkingDirectory(
+	rootDirectory: string,
+	requestedDirectory = ".",
+): Promise<string> {
+	const canonicalRoot = await fs.promises.realpath(rootDirectory);
+	const candidate = path.resolve(canonicalRoot, requestedDirectory);
+	const canonicalCandidate = await fs.promises.realpath(candidate);
+	const relative = path.relative(canonicalRoot, canonicalCandidate);
+	if (
+		relative === ".." ||
+		relative.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relative)
+	) {
+		throw new Error("Command working directory escapes the application root");
+	}
+	const stats = await fs.promises.stat(canonicalCandidate);
+	if (!stats.isDirectory())
+		throw new Error("Command working directory is not a directory");
+	return canonicalCandidate;
+}
+
+interface ExecuteCommandOptions {
+	customEnv?: Record<string, string>;
+	onOutput?: (text: string) => void;
+	signal?: AbortSignal;
+	operationId?: string;
+	timeoutMs?: number;
+}
+
+function createCommandDeadline(
+	parent: AbortSignal | undefined,
+	timeoutMs: number,
+) {
+	const controller = new AbortController();
+	let timedOut = false;
+	const abort = () => controller.abort(parent?.reason);
+	if (parent?.aborted) abort();
+	else parent?.addEventListener("abort", abort, { once: true });
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort(new Error("Command timed out"));
+	}, timeoutMs);
+	return {
+		signal: controller.signal,
+		get timedOut() {
+			return timedOut;
+		},
+		dispose: () => {
+			clearTimeout(timer);
+			parent?.removeEventListener("abort", abort);
+		},
+	};
+}
+
+function filterOutput(data: string, isWindows: boolean): string {
+	let text = data.replace(/\x1b\][^\x07]*\x07/g, "");
+	if (isWindows) {
+		text = text.replace(/Microsoft Windows \[[^\r\n]*\](\r?\n)?/gi, "");
+		text = text.replace(/\(c\)\s*Microsoft Corporation[^\r\n]*\r?\n?/gi, "");
+		text = text.replace(/[A-Z]:\\[^\r\n>]*>@echo off\r?\n?/gi, "");
+		text = text.replace(/@echo off\r?\n?/gi, "");
+		text = text.replace(/exit %ERRORLEVEL%\r?\n?/gi, "");
+	}
+	return text.replace(/R\r?\n/g, "\r\n");
+}
+
+function cleanANSI(data: string): string {
+	const pattern = [
+		"[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
+		"(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-Za-z=><~]))",
+	].join("|");
+	return data.replaceAll(new RegExp(pattern, "gi"), "");
+}
+
 export const executeCommand = async (
-	command: string,
+	command: string | ProcessCommand,
 	io: Server,
 	workingDir: string,
 	id: string,
 	needsBuildTools?: boolean,
 	logsType?: string,
-	options?: {
-		customEnv?: Record<string, string>;
-		onOutput?: (text: string) => void;
-	},
+	options?: ExecuteCommandOptions,
 ): Promise<{ code: number; stdout: string; stderr: string }> => {
+	const localOperation = options?.operationId
+		? undefined
+		: beginOperation(id, options?.signal);
+	const operationId =
+		options?.operationId ?? localOperation?.id ?? randomUUID();
+	const operationSignal = localOperation?.controller.signal ?? options?.signal;
+	const timeoutMs = options?.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+	if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+		throw new Error("Command timeout must be a positive integer");
+	}
+	const deadline = createCommandDeadline(operationSignal, timeoutMs);
 	let outputData = "";
-	const enhancedEnv = options?.customEnv
-		? options?.customEnv
-		: await getEnhancedEnv(needsBuildTools || false);
 	const logs = logsType || "installUpdate";
 
 	try {
+		const enhancedEnv = options?.customEnv
+			? options.customEnv
+			: await getEnhancedEnv(needsBuildTools || false);
 		const currentPlatform = getPlatform();
 		const isWindows = currentPlatform === "win32";
+		const commandSpec: ProcessCommand =
+			typeof command === "string" ? { command } : command;
+		const shellCommand = commandSpec.command?.trim();
+		if (!shellCommand && !commandSpec.file) {
+			throw new Error("Command must provide shell text or an executable");
+		}
+		if (commandSpec.file && !Array.isArray(commandSpec.args)) {
+			throw new Error("Structured command arguments must be an array");
+		}
+		const displayCommand =
+			commandSpec.displayCommand ||
+			shellCommand ||
+			[commandSpec.file, ...(commandSpec.args ?? [])].join(" ");
 		io.to(id).emit("installUpdate", {
 			type: "currentCommand",
-			content: command,
+			content: displayCommand,
 		});
 		const dims = processesDimensions.get(id) ?? { cols: 120, rows: 40 };
+		const canonicalWorkingDir = await fs.promises.realpath(workingDir);
 
-		logger.info(`Working on directory: ${sanitizePathForLog(workingDir)}`);
+		logger.info(
+			`Working on directory: ${sanitizePathForLog(canonicalWorkingDir)}`,
+		);
+		logger.info(
+			`Executing: ${displayCommand.length > 300 ? `${displayCommand.substring(0, 300)}...` : displayCommand}`,
+		);
+		if (deadline.signal.aborted) {
+			return {
+				code: deadline.timedOut ? 124 : 130,
+				stdout: "",
+				stderr: deadline.timedOut ? "Command timed out" : "Command cancelled",
+			};
+		}
 
 		// handle git commands on non-Windows
-		if (!isWindows && command.startsWith("git ")) {
-			const result = await useGit(command, workingDir, io, id);
+		if (!commandSpec.file && !isWindows && shellCommand?.startsWith("git ")) {
+			const result = await useGit(
+				shellCommand,
+				canonicalWorkingDir,
+				io,
+				id,
+				deadline.signal,
+			);
 			if (result) {
 				return { code: 0, stdout: "", stderr: "" };
 			}
@@ -212,104 +636,129 @@ export const executeCommand = async (
 		const shell = isWindows
 			? process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe"
 			: process.env.SHELL || "/bin/bash";
-
-		const shellArgs = isWindows ? ["/Q"] : [];
-
-		const ptyProcess = pty.spawn(shell, shellArgs, {
+		const executable = commandSpec.file || shell;
+		const executableArgs = commandSpec.file
+			? (commandSpec.args ?? [])
+			: isWindows
+				? ["/Q"]
+				: [];
+		const commandEnvironment = {
+			...enhancedEnv,
+			...commandSpec.env,
+		} as Record<string, string>;
+		if (commandSpec.env?.PATH) {
+			commandEnvironment.PATH = [commandSpec.env.PATH, enhancedEnv.PATH]
+				.filter(Boolean)
+				.join(path.delimiter);
+		}
+		const ptyProcess = pty.spawn(executable, executableArgs, {
 			name: "xterm-256color",
 			cols: dims.cols,
 			rows: dims.rows,
-			cwd: workingDir,
-			env: enhancedEnv as Record<string, string>,
+			cwd: canonicalWorkingDir,
+			env: commandEnvironment,
 		});
-
 		const pid = ptyProcess.pid;
-
-		if (isWindows) {
-			ptyProcess.write(`@echo off\r\n${command}\r\nexit %ERRORLEVEL%\r\n`);
-		} else {
-			ptyProcess.write(`${command}; exit $?\n`);
-		}
-
-		logger.info(
-			`Executing: ${command.length > 300 ? command.substring(0, 300) + "..." : command}`,
-		);
-
-		if (pid) {
-			activeProcesses.add(ptyProcess);
-			registerProcess(id, pid);
-		}
-
-		const filterOutput = (data: string, isWindows: boolean): string => {
-			let text = data;
-			text = text.replace(/\x1b\][^\x07]*\x07/g, "");
-			if (isWindows) {
-				text = text.replace(/Microsoft Windows \[[^\r\n]*\](\r?\n)?/gi, "");
-				text = text.replace(
-					/\(c\)\s*Microsoft Corporation[^\r\n]*\r?\n?/gi,
-					"",
-				);
-				text = text.replace(/[A-Z]:\\[^\r\n>]*>@echo off\r?\n?/gi, "");
-				text = text.replace(/@echo off\r?\n?/gi, "");
-				text = text.replace(/exit %ERRORLEVEL%\r?\n?/gi, "");
-			}
-			text = text.replace(/R\r?\n/g, "\r\n");
-			return text;
+		let resolveExit: (value: { exitCode: number }) => void = () => {};
+		const exitResult = new Promise<{ exitCode: number }>((resolve) => {
+			resolveExit = resolve;
+		});
+		const managed: ManagedProcess = {
+			appId: id,
+			operationId,
+			pid,
+			pty: ptyProcess,
+			exited: exitResult.then(() => undefined),
+			rootExited: false,
+			knownPids: new Set([pid]),
 		};
-		const cleanANSI = (data: string) => {
-			const pattern = [
-				"[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
-				"(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-Za-z=><~]))",
-			].join("|");
-			const regex = new RegExp(pattern, "gi");
-			return data.replaceAll(regex, "");
-		};
-
-		ptyProcess.onData((data: string) => {
+		const socketOutput = new RateLimitedSocketOutput((content) => {
+			io.to(id).emit(logs, { type: "log", content });
+		});
+		const dataDisposable = ptyProcess.onData((data: string) => {
 			const clean = cleanANSI(filterOutput(data, isWindows));
 			if (!clean) return;
-			outputData += clean;
+			outputData = appendBoundedOutput(outputData, clean);
 			options?.onOutput?.(clean);
-			io.to(id).emit(logs, {
-				type: "log",
-				content: clean,
-			});
+			socketOutput.write(clean);
+		});
+		const exitDisposable = ptyProcess.onExit(({ exitCode }) => {
+			managed.rootExited = true;
+			resolveExit({ exitCode: exitCode ?? 0 });
+			if (!managed.terminating) unregisterProcess(id, pid);
+		});
+		trackProcess(managed);
+
+		if (!commandSpec.file && shellCommand) {
+			if (isWindows) {
+				ptyProcess.write(
+					`@echo off\r\n${shellCommand}\r\nexit %ERRORLEVEL%\r\n`,
+				);
+			} else {
+				ptyProcess.write(`${shellCommand}; exit $?\n`);
+			}
+		}
+
+		let removeAbortListener = () => {};
+		const aborted = new Promise<{ aborted: true }>((resolve) => {
+			const onAbort = () => resolve({ aborted: true });
+			if (deadline.signal.aborted) onAbort();
+			else deadline.signal.addEventListener("abort", onAbort, { once: true });
+			removeAbortListener = () =>
+				deadline.signal.removeEventListener("abort", onAbort);
 		});
 
-		return new Promise<{ code: number; stdout: string; stderr: string }>(
-			(resolve) => {
-				ptyProcess.onExit(({ exitCode }) => {
-					if (pid) {
-						activeProcesses.delete(ptyProcess);
-						unregisterProcess(id, pid);
-						logger.info(
-							`PTY Process (PID: ${pid}) finished with exit code ${exitCode || 0}`,
-						);
-						resolve({ code: exitCode || 0, stdout: outputData, stderr: "" });
-					}
-					if (exitCode !== 0) {
-						io.to(id).emit(logs, {
-							type: "status",
-							status: "error",
-							content: "Error detected",
-						});
-						log(
-							io,
-							id,
-							`ERROR: Process finished with exit code ${exitCode || 0}, please try again.`,
-						);
-						resolve({ code: exitCode || 0, stdout: outputData, stderr: "" });
-					} else {
-						io.to(id).emit(logs, {
-							type: "status",
-							status: "success",
-							content: "Process finished successfully",
-						});
-						resolve({ code: exitCode || 0, stdout: outputData, stderr: "" });
-					}
+		try {
+			const outcome = await Promise.race([
+				exitResult.then((result) => ({ aborted: false as const, ...result })),
+				aborted,
+			]);
+			if (outcome.aborted) {
+				await terminateManagedProcess(managed);
+				const message = deadline.timedOut
+					? "Command timed out"
+					: "Command cancelled";
+				io.to(id).emit(logs, {
+					type: "status",
+					status: "error",
+					content: "Error detected",
 				});
-			},
-		);
+				return {
+					code: deadline.timedOut ? 124 : 130,
+					stdout: outputData,
+					stderr: message,
+				};
+			}
+
+			const exitCode = outcome.exitCode ?? 0;
+			logger.info(
+				`PTY Process (PID: ${pid}) finished with exit code ${exitCode}`,
+			);
+			if (exitCode !== 0) {
+				io.to(id).emit(logs, {
+					type: "status",
+					status: "error",
+					content: "Error detected",
+				});
+				log(
+					io,
+					id,
+					`ERROR: Process finished with exit code ${exitCode}, please try again.`,
+				);
+			} else {
+				io.to(id).emit(logs, {
+					type: "status",
+					status: "success",
+					content: "Process finished successfully",
+				});
+			}
+			return { code: exitCode, stdout: outputData, stderr: "" };
+		} finally {
+			removeAbortListener();
+			dataDisposable.dispose();
+			exitDisposable.dispose();
+			socketOutput.close();
+		}
 	} catch (error: any) {
 		const errorMsg = `Exception executing command: ${error.message}`;
 		logger.error(errorMsg);
@@ -319,11 +768,14 @@ export const executeCommand = async (
 			content: "Error detected",
 		});
 		return { code: -1, stdout: "", stderr: errorMsg };
+	} finally {
+		deadline.dispose();
+		if (localOperation) finishOperation(localOperation);
 	}
 };
 
 export const executeCommands = async (
-	commands: any[],
+	commands: Array<string | ProcessCommand>,
 	workingDir: string,
 	io: Server,
 	id: string,
@@ -332,236 +784,220 @@ export const executeCommands = async (
 		customEnv?: Record<string, string>;
 		onOutput?: (text: string) => void;
 		onProgress?: (progress: number) => void;
+		signal?: AbortSignal;
+		commandTimeoutMs?: number;
 	},
 ): Promise<{ cancelled: boolean; id?: string }> => {
-	processWasCancelled = false;
-	let currentWorkingDir = workingDir;
-	const currentPlatform = getPlatform();
-	const { gpu: currentGpu } = await getSystemInfo();
+	const operation = beginOperation(id, options?.signal);
+	try {
+		const applicationRoot = await resolveContainedWorkingDirectory(workingDir);
+		const currentPlatform = getPlatform();
+		const { gpu: currentGpu } = await getSystemInfo();
 
-	const totalCommands = commands.length;
-	let completedCommands = 0;
+		const totalCommands = commands.length;
+		let completedCommands = 0;
 
-	for (const cmd of commands) {
-		if (processWasCancelled) {
-			logger.info(
-				`Process with id ${id} cancelled - stopping remaining commands`,
-			);
-			log(
-				io,
-				id,
-				`INFO: Process with id ${id} cancelled - stopping remaining commands`,
-			);
-			return { cancelled: true, id };
-		}
-
-		let command: string;
-
-		if (typeof cmd === "string") {
-			command = cmd;
-		} else if (typeof cmd === "object" && cmd !== null) {
-			if ("platform" in cmd) {
-				const cmdPlatform = cmd.platform.toLowerCase();
-				const normalizedPlatform =
-					currentPlatform === "win32"
-						? "windows"
-						: currentPlatform === "darwin"
-							? "mac"
-							: currentPlatform === "linux"
-								? "linux"
-								: currentPlatform;
-
-				if (cmdPlatform !== normalizedPlatform) {
-					logger.info(
-						`Skipping command for platform ${cmdPlatform} on current platform ${currentPlatform}`,
-					);
-					log(
-						io,
-						id,
-						`INFO: Skipping command for platform ${cmdPlatform} on current platform ${currentPlatform}`,
-					);
-					continue;
-				}
-			}
-
-			if ("gpus" in cmd) {
-				const allowedGpus = Array.isArray(cmd.gpus)
-					? cmd.gpus.map((g: string) => g.toLowerCase())
-					: [cmd.gpus.toLowerCase()];
-
-				if (!allowedGpus.includes(currentGpu.toLowerCase())) {
-					logger.info(
-						`Skipping command for GPU ${allowedGpus.join(", ")} on current ${currentGpu} GPU`,
-					);
-					log(
-						io,
-						id,
-						`INFO: Skipping command for GPU ${allowedGpus.join(", ")} on current ${currentGpu} GPU`,
-					);
-					continue;
-				}
-			}
-
-			if ("command" in cmd) {
-				command = cmd.command;
-			} else {
-				logger.error(`Invalid command object: ${JSON.stringify(cmd)}`);
-				log(io, id, `ERROR: Invalid command object: ${JSON.stringify(cmd)}`);
-				continue;
-			}
-		} else {
-			logger.error(`Invalid command type: ${typeof cmd}`);
-			continue;
-		}
-
-		command = command.trim();
-
-		const cdRegex = /\bcd\s+([^\s;]+)/;
-		const cdMatch = command.match(cdRegex);
-
-		if (cdMatch) {
-			const targetDir = cdMatch[1].trim();
-			const newWorkingDir = path.isAbsolute(targetDir)
-				? targetDir
-				: path.join(currentWorkingDir, targetDir);
-
-			if (!fs.existsSync(newWorkingDir)) {
-				logger.error(
-					`Directory does not exist: ${sanitizePathForLog(newWorkingDir)}`,
+		for (const cmd of commands) {
+			if (operation.controller.signal.aborted) {
+				logger.info(
+					`Process with id ${id} cancelled - stopping remaining commands`,
 				);
 				log(
 					io,
 					id,
-					`ERROR: Directory does not exist: ${sanitizePathForLog(newWorkingDir)}`,
+					`INFO: Process with id ${id} cancelled - stopping remaining commands`,
 				);
-				io.to(id).emit("installUpdate", {
-					type: "status",
-					status: "error",
-					content: "Error detected",
-				});
+				return { cancelled: true, id };
+			}
+
+			let command: ProcessCommand;
+
+			if (typeof cmd === "string") {
+				command = { command: cmd.trim() };
+			} else if (typeof cmd === "object" && cmd !== null) {
+				if (cmd.platform) {
+					const cmdPlatform = cmd.platform.toLowerCase();
+					const normalizedPlatform =
+						currentPlatform === "win32"
+							? "windows"
+							: currentPlatform === "darwin"
+								? "mac"
+								: currentPlatform === "linux"
+									? "linux"
+									: currentPlatform;
+
+					if (cmdPlatform !== normalizedPlatform) {
+						logger.info(
+							`Skipping command for platform ${cmdPlatform} on current platform ${currentPlatform}`,
+						);
+						log(
+							io,
+							id,
+							`INFO: Skipping command for platform ${cmdPlatform} on current platform ${currentPlatform}`,
+						);
+						continue;
+					}
+				}
+
+				if (cmd.gpus) {
+					const allowedGpus = Array.isArray(cmd.gpus)
+						? cmd.gpus.map((g: string) => g.toLowerCase())
+						: [cmd.gpus.toLowerCase()];
+
+					if (!allowedGpus.includes(currentGpu.toLowerCase())) {
+						logger.info(
+							`Skipping command for GPU ${allowedGpus.join(", ")} on current ${currentGpu} GPU`,
+						);
+						log(
+							io,
+							id,
+							`INFO: Skipping command for GPU ${allowedGpus.join(", ")} on current ${currentGpu} GPU`,
+						);
+						continue;
+					}
+				}
+
+				if (typeof cmd.command === "string" || typeof cmd.file === "string") {
+					command = {
+						...cmd,
+						command: cmd.command?.trim(),
+					};
+				} else {
+					logger.error(`Invalid command object: ${JSON.stringify(cmd)}`);
+					log(io, id, `ERROR: Invalid command object: ${JSON.stringify(cmd)}`);
+					continue;
+				}
+			} else {
+				logger.error(`Invalid command type: ${typeof cmd}`);
 				continue;
 			}
 
-			currentWorkingDir = newWorkingDir;
-			const sanitized = sanitizePathForLog(currentWorkingDir);
-			logger.info(`Changed working directory to: ${sanitized}`);
-			log(io, id, `INFO: Changed working directory to: ${sanitized}`);
-
-			command = command.replace(cdRegex, "").trim();
-			command = command
-				.replace(/&&\s*&&/g, "&&")
-				.replace(/^&&\s*/, "")
-				.replace(/\s*&&$/, "")
-				.trim();
-		}
-
-		if (command.length > 0) {
-			let commandProgress = 0;
-			let outputLines = 0;
-			const startTime = Date.now();
-			let lastProgressEmit = 0;
-			let installingPackages = 0;
-			let totalPackages = 0;
-
-			if (options?.onProgress) {
-				const baseProgress = completedCommands / totalCommands;
-				options.onProgress(baseProgress);
-			}
-
-			const response = await executeCommand(
-				command,
-				io,
-				currentWorkingDir,
-				id,
-				needsBuildTools,
-				undefined,
-				{
-					...options,
-					onOutput: (text: string) => {
-						options?.onOutput?.(text);
-
-						outputLines++;
-						const elapsed = Date.now() - startTime;
-
-						const pipInstallMatch = text.match(/Collecting\s+(\S+)/i);
-						const pipInstalledMatch = text.match(
-							/Successfully\s+installed\s+(.+)/i,
-						);
-						const uvInstalledMatch = text.match(/Installed\s+(\d+)\s+package/i);
-						const uvResolvingMatch = text.match(/Resolved\s+(\d+)\s+package/i);
-
-						if (pipInstallMatch) {
-							totalPackages++;
-						}
-						if (pipInstalledMatch) {
-							const packages = pipInstalledMatch[1]
-								.split(/\s+/)
-								.filter((p) => p.trim());
-							installingPackages = packages.length;
-						}
-						if (uvInstalledMatch) {
-							installingPackages = Number.parseInt(uvInstalledMatch[1]);
-						}
-						if (uvResolvingMatch) {
-							totalPackages = Number.parseInt(uvResolvingMatch[1]);
-						}
-
-						let packageProgress = 0;
-						if (totalPackages > 0 && installingPackages > 0) {
-							packageProgress = Math.min(
-								0.95,
-								installingPackages / totalPackages,
-							);
-						}
-
-						const timeProgress = Math.min(
-							0.85,
-							Math.log(elapsed + 1000) / Math.log(300000),
-						);
-
-						const outputProgress = Math.min(0.85, Math.sqrt(outputLines / 100));
-
-						if (packageProgress > 0) {
-							commandProgress = Math.max(commandProgress, packageProgress);
-						} else {
-							commandProgress = Math.max(
-								commandProgress,
-								Math.max(timeProgress, outputProgress),
-							);
-						}
-
-						const overallProgress =
-							(completedCommands + commandProgress) / totalCommands;
-
-						const now = Date.now();
-						if (now - lastProgressEmit > 300 && options?.onProgress) {
-							options.onProgress(overallProgress);
-							lastProgressEmit = now;
-						}
-					},
-				},
-			);
-
-			if (response.code !== 0) {
-				if (processWasCancelled) {
-					logger.info("Process was manually cancelled");
-					log(io, id, "INFO: Process was manually cancelled");
-					return { cancelled: true };
-				}
-				await dropProcesses(id);
-				processWasCancelled = true;
-				throw new Error(
-					response.stderr || `Command failed with exit code ${response.code}`,
+			if (command.command || command.file) {
+				const commandWorkingDir = await resolveContainedWorkingDirectory(
+					applicationRoot,
+					command.cwd,
 				);
-			}
+				let commandProgress = 0;
+				let outputLines = 0;
+				const startTime = Date.now();
+				let lastProgressEmit = 0;
+				let installingPackages = 0;
+				let totalPackages = 0;
 
-			completedCommands++;
-			if (options?.onProgress) {
-				options.onProgress(completedCommands / totalCommands);
+				if (options?.onProgress) {
+					const baseProgress = completedCommands / totalCommands;
+					options.onProgress(baseProgress);
+				}
+
+				const response = await executeCommand(
+					command,
+					io,
+					commandWorkingDir,
+					id,
+					needsBuildTools,
+					undefined,
+					{
+						customEnv: options?.customEnv,
+						signal: operation.controller.signal,
+						operationId: operation.id,
+						timeoutMs: options?.commandTimeoutMs,
+						onOutput: (text: string) => {
+							options?.onOutput?.(text);
+
+							outputLines++;
+							const elapsed = Date.now() - startTime;
+
+							const pipInstallMatch = text.match(/Collecting\s+(\S+)/i);
+							const pipInstalledMatch = text.match(
+								/Successfully\s+installed\s+(.+)/i,
+							);
+							const uvInstalledMatch = text.match(
+								/Installed\s+(\d+)\s+package/i,
+							);
+							const uvResolvingMatch = text.match(
+								/Resolved\s+(\d+)\s+package/i,
+							);
+
+							if (pipInstallMatch) {
+								totalPackages++;
+							}
+							if (pipInstalledMatch) {
+								const packages = pipInstalledMatch[1]
+									.split(/\s+/)
+									.filter((p) => p.trim());
+								installingPackages = packages.length;
+							}
+							if (uvInstalledMatch) {
+								installingPackages = Number.parseInt(uvInstalledMatch[1]);
+							}
+							if (uvResolvingMatch) {
+								totalPackages = Number.parseInt(uvResolvingMatch[1]);
+							}
+
+							let packageProgress = 0;
+							if (totalPackages > 0 && installingPackages > 0) {
+								packageProgress = Math.min(
+									0.95,
+									installingPackages / totalPackages,
+								);
+							}
+
+							const timeProgress = Math.min(
+								0.85,
+								Math.log(elapsed + 1000) / Math.log(300000),
+							);
+
+							const outputProgress = Math.min(
+								0.85,
+								Math.sqrt(outputLines / 100),
+							);
+
+							if (packageProgress > 0) {
+								commandProgress = Math.max(commandProgress, packageProgress);
+							} else {
+								commandProgress = Math.max(
+									commandProgress,
+									Math.max(timeProgress, outputProgress),
+								);
+							}
+
+							const overallProgress =
+								(completedCommands + commandProgress) / totalCommands;
+
+							const now = Date.now();
+							if (now - lastProgressEmit > 300 && options?.onProgress) {
+								options.onProgress(overallProgress);
+								lastProgressEmit = now;
+							}
+						},
+					},
+				);
+
+				if (response.code !== 0) {
+					if (operation.controller.signal.aborted) {
+						logger.info("Process was manually cancelled");
+						log(io, id, "INFO: Process was manually cancelled");
+						return { cancelled: true, id };
+					}
+					operation.controller.abort(
+						new Error(`Command failed with exit code ${response.code}`),
+					);
+					await dropProcesses(id, undefined, operation.id);
+					throw new Error(
+						response.stderr || `Command failed with exit code ${response.code}`,
+					);
+				}
+
+				completedCommands++;
+				if (options?.onProgress) {
+					options.onProgress(completedCommands / totalCommands);
+				}
 			}
 		}
+		return { cancelled: false };
+	} finally {
+		finishOperation(operation);
 	}
-	return { cancelled: false };
 };
 
 export const getEnhancedEnv = async (needsBuildTools: boolean) => {
@@ -661,7 +1097,7 @@ export const getEnhancedEnv = async (needsBuildTools: boolean) => {
 	const _fnAny = executeCommand as unknown as Record<string, any>;
 
 	const initializeBuildTools = async () => {
-		logger.info(`This script requires build tools. Initializing...`);
+		logger.info("This script requires build tools. Initializing...");
 		const buildTools = BuildToolsManager.getInstance();
 		const buildToolsReady = await buildTools.initialize();
 
@@ -681,7 +1117,6 @@ export const getEnhancedEnv = async (needsBuildTools: boolean) => {
 			logger.info("Reusing cached build tools environment");
 		}
 		return _fnAny[_cacheKey];
-	} else {
-		return baseEnv;
 	}
+	return baseEnv;
 };

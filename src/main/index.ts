@@ -55,7 +55,10 @@ import {
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import si from "systeminformation";
-import { resizeTerminal } from "./server/scripts/process";
+import {
+	resizeTerminal,
+	stopAllActiveProcesses,
+} from "./server/scripts/process";
 
 dotenvConfig();
 
@@ -1277,6 +1280,7 @@ app.whenReady().then(async () => {
 
 				logFailures(
 					await Promise.allSettled([
+						stopAllActiveProcesses(),
 						destroyPresence(),
 						stopTunnel(),
 						stopServer(),

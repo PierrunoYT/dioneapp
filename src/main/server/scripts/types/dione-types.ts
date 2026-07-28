@@ -27,7 +27,15 @@ export interface DioneStep {
 	/** Step description/name */
 	name: string;
 	/** Commands to execute */
-	commands: string[] | object[];
+	commands: Array<
+		| string
+		| {
+				command: string;
+				platform?: string;
+				gpus?: string | string[];
+				cwd?: string;
+		  }
+	>;
 	/** Optional environment variables for the step */
 	variables?: Variable[];
 	/** Optional virtual environment specification */

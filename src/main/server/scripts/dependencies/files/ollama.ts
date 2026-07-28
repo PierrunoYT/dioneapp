@@ -157,8 +157,8 @@ export async function uninstall(binFolder: string): Promise<void> {
 	const cacheDir = path.join(binFolder, "cache", depName);
 	if (fs.existsSync(depFolder)) {
 		logger.info(`Removing cache in ${cacheDir}...`);
-		fs.rmSync(cacheDir, { recursive: true, force: true });
-		fs.rmSync(depFolder, { recursive: true, force: true });
+		await fs.promises.rm(cacheDir, { recursive: true, force: true });
+		await fs.promises.rm(depFolder, { recursive: true, force: true });
 		removeValue(depFolder, "PATH");
 		removeKey("OLLAMA_MODELS");
 		removeKey("OLLAMA_HOST");

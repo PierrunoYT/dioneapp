@@ -1,6 +1,7 @@
-import { type ChildProcess, spawn } from "child_process";
-import fs from "fs";
-import path from "path";
+import { type ChildProcess, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { readConfig } from "@/config";
 import { getSysPrompt } from "@/server/routes/ai/instructions/instructions";
 import { getTools } from "@/server/routes/ai/ollama/tools";
@@ -9,12 +10,14 @@ import {
 	installDependency,
 } from "@/server/scripts/dependencies/dependencies";
 import { getAllValues } from "@/server/scripts/dependencies/environment";
-import { stopActiveProcess } from "@/server/scripts/process";
+import {
+	registerOwnedChildProcess,
+	stopActiveProcess,
+} from "@/server/scripts/process";
 import logger from "@/server/utils/logger";
 import { app } from "electron";
 import express from "express";
 import type { Server as SocketIOServer } from "socket.io";
-import { randomUUID } from "node:crypto";
 const { Ollama } = require("ollama");
 
 let activeProcess: ChildProcess | null = null;
@@ -90,6 +93,24 @@ function getModelPullAllowance(): number {
 	);
 }
 
+function getOllamaExecutable(ollamaDirectory: string): string {
+	const candidates =
+		process.platform === "win32"
+			? [path.join(ollamaDirectory, "ollama.exe")]
+			: [
+					path.join(ollamaDirectory, "ollama"),
+					path.join(ollamaDirectory, "bin", "ollama"),
+					path.join(
+						ollamaDirectory,
+						"Ollama.app",
+						"Contents",
+						"Resources",
+						"ollama",
+					),
+				];
+	return candidates.find((candidate) => fs.existsSync(candidate)) || "ollama";
+}
+
 export function createOllamaRouter(io: SocketIOServer) {
 	const OllamaRouter = express.Router();
 	OllamaRouter.use(express.json({ limit: MAX_JSON_BYTES }));
@@ -123,7 +144,7 @@ export function createOllamaRouter(io: SocketIOServer) {
 		if (result.success) {
 			installed = true;
 		}
-		logger.ai(`Installation finished.`);
+		logger.ai("Installation finished.");
 		res.json({ installed });
 	});
 
@@ -135,7 +156,6 @@ export function createOllamaRouter(io: SocketIOServer) {
 			"bin",
 		);
 		const ollamaDir = path.join(binFolder, "ollama");
-		const command = "ollama serve";
 
 		if (!fs.existsSync(ollamaDir)) {
 			logger.ai("Ollama directory does not exist.");
@@ -149,30 +169,33 @@ export function createOllamaRouter(io: SocketIOServer) {
 
 		try {
 			const ENVIRONMENT = getAllValues();
-			activeProcess = spawn(command, {
+			const child = spawn(getOllamaExecutable(ollamaDir), ["serve"], {
 				cwd: ollamaDir,
-				shell: true,
+				shell: false,
 				env: ENVIRONMENT,
+				windowsHide: true,
 			});
-
-			if (!activeProcess) {
-				res.status(500).json({ error: "Failed to start Ollama server" });
-				return;
-			}
+			activeProcess = child;
+			await new Promise<void>((resolve, reject) => {
+				child.once("spawn", resolve);
+				child.once("error", reject);
+			});
+			registerOwnedChildProcess("ollama", child);
 
 			// Ollama output can contain request content; never persist raw stdout/stderr.
-			activeProcess?.stdout?.resume();
-			activeProcess?.stderr?.resume();
+			child.stdout?.resume();
+			child.stderr?.resume();
 
-			activeProcess.on("exit", (code) => {
+			child.on("exit", (code) => {
 				logger.ai(`Ollama server exited with code ${code}`);
-				activeProcess = null;
+				if (activeProcess === child) activeProcess = null;
 			});
 
-			logger.ai(`Ollama server started with PID ${activeProcess.pid}`);
+			logger.ai(`Ollama server started with PID ${child.pid}`);
 
-			res.json({ message: "Ollama server started", pid: activeProcess.pid });
+			res.json({ message: "Ollama server started", pid: child.pid });
 		} catch (error) {
+			activeProcess = null;
 			logger.error(
 				`Ollama start failed metadata=${JSON.stringify(safeError(error))}`,
 			);
@@ -472,7 +495,7 @@ export function createOllamaRouter(io: SocketIOServer) {
 
 			if (!res.headersSent)
 				res.status(500).json({
-					error: `Unexpected error`,
+					error: "Unexpected error",
 					message: "Unexpected error processing chat request.",
 				});
 		} finally {
@@ -537,7 +560,7 @@ export function createOllamaRouter(io: SocketIOServer) {
 					}
 				}
 
-				if (parsed && parsed.tool) {
+				if (parsed?.tool) {
 					const toolName = parsed.tool;
 					const args = parsed.arguments || {};
 

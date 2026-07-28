@@ -145,7 +145,7 @@ export async function uninstall(binFolder: string): Promise<void> {
 	const depFolder = path.join(binFolder, depName);
 	if (fs.existsSync(depFolder)) {
 		logger.info(`Removing ${depName} folder in ${depFolder}...`);
-		fs.rmSync(depFolder, { recursive: true, force: true });
+		await fs.promises.rm(depFolder, { recursive: true, force: true });
 		removeValue(depFolder, "PATH");
 		removeKey("XDG_CACHE_HOME");
 		removeKey("XDG_STATE_HOME");
