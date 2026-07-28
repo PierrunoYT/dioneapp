@@ -38,6 +38,27 @@ function nodeWindowsArtifact(target: string, sha256: string): ArtifactMetadata {
 	};
 }
 
+function nodePosixArtifact(
+	platform: "linux" | "darwin",
+	target: "x64" | "arm64",
+	sha256: string,
+): ArtifactMetadata {
+	const name = `node-${version}-${platform}-${target}.tar.gz`;
+	return {
+		id: name,
+		version,
+		url: `https://nodejs.org/dist/${version}/${name}`,
+		allowedHosts: ["nodejs.org"],
+		verification: { type: "sha256", sha256 },
+		maxDownloadBytes: 120 * 1024 * 1024,
+		archive: {
+			format: "tar.gz",
+			allowSymlinks: true,
+			limits: { maxMembers: 10_000, maxExpandedBytes: 1024 * 1024 * 1024 },
+		},
+	};
+}
+
 // Digests are from Node.js v22.20.0's vendor-published SHASUMS256.txt.
 const windowsArtifacts: Record<string, ArtifactMetadata> = {
 	amd64: nodeWindowsArtifact(
@@ -51,6 +72,29 @@ const windowsArtifacts: Record<string, ArtifactMetadata> = {
 	x86: nodeWindowsArtifact(
 		"x86",
 		"b46cf58bae2925d1122975dc758063928eca7b6a28c676bf500ad11599d7fa03",
+	),
+};
+
+const posixArtifacts: Record<string, ArtifactMetadata> = {
+	"linux-amd64": nodePosixArtifact(
+		"linux",
+		"x64",
+		"eeaccb0378b79406f2208e8b37a62479c70595e20be6b659125eb77dd1ab2a29",
+	),
+	"linux-arm64": nodePosixArtifact(
+		"linux",
+		"arm64",
+		"4181609e03dcb9880e7e5bf956061ecc0503c77a480c6631d868cb1f65a2c7dd",
+	),
+	"macos-amd64": nodePosixArtifact(
+		"darwin",
+		"x64",
+		"00df9c5df3e4ec6848c26b70fb47bf96492f342f4bed6b17f12d99b3a45eeecc",
+	),
+	"macos-arm64": nodePosixArtifact(
+		"darwin",
+		"arm64",
+		"cc04a76a09f79290194c0646f48fec40354d88969bec467789a5d55dd097f949",
 	),
 };
 
@@ -83,14 +127,14 @@ export async function install(
 ): Promise<{ success: boolean }> {
 	const platform = getOS();
 	const arch = getArch();
-	const artifact = platform === "windows" ? windowsArtifacts[arch] : undefined;
+	const artifact =
+		platform === "windows"
+			? windowsArtifacts[arch]
+			: posixArtifacts[`${platform}-${arch}`];
 	if (!artifact) {
 		io.to(id).emit("installDep", {
 			type: "error",
-			content:
-				platform === "windows"
-					? `No verified Node.js artifact is available for ${arch}.`
-					: "Bundled Node.js installation is disabled on this platform because the vendor tarballs contain links; use a system Node.js installation.",
+			content: `No verified Node.js artifact is available for ${platform} (${arch}).`,
 		});
 		return { success: false };
 	}
@@ -120,12 +164,37 @@ export async function install(
 			tempDir,
 		);
 		const target = arch === "amd64" ? "x64" : arch;
+		const artifactPlatform =
+			platform === "windows"
+				? "win"
+				: platform === "macos"
+					? "darwin"
+					: "linux";
 		const extractedRoot = path.join(
 			extractionStage,
-			`node-${version}-win-${target}`,
+			`node-${version}-${artifactPlatform}-${target}`,
 		);
-		if (!fs.statSync(extractedRoot).isDirectory()) {
+		if (!(await fsp.lstat(extractedRoot)).isDirectory()) {
 			throw new Error("Verified Node.js archive has an unexpected layout.");
+		}
+		const nodeExecutable = path.join(
+			extractedRoot,
+			platform === "windows" ? "node.exe" : path.join("bin", "node"),
+		);
+		if (!(await fsp.lstat(nodeExecutable)).isFile())
+			throw new Error("Verified Node.js archive is missing its executable.");
+		if (platform !== "windows") {
+			await fsp.access(nodeExecutable, fs.constants.X_OK);
+			for (const command of ["corepack", "npm", "npx"]) {
+				if (
+					!(
+						await fsp.lstat(path.join(extractedRoot, "bin", command))
+					).isSymbolicLink()
+				)
+					throw new Error(
+						`Verified Node.js archive has an invalid ${command} command.`,
+					);
+			}
 		}
 		await promoteStagedDirectory(extractedRoot, depFolder);
 		await fsp.rm(extractionStage, { recursive: true, force: true });
@@ -146,7 +215,10 @@ export async function install(
 	}
 
 	const cacheDir = path.join(binFolder, "cache", depName);
-	addValue("PATH", depFolder);
+	addValue(
+		"PATH",
+		platform === "windows" ? depFolder : path.join(depFolder, "bin"),
+	);
 	addValue("PATH", path.join(depFolder, "node_modules"));
 	addValue("NPM_CONFIG_CACHE", cacheDir);
 	addValue("NPM_CONFIG_STORE_DIR", cacheDir);
@@ -163,6 +235,7 @@ export async function uninstall(binFolder: string): Promise<void> {
 		logger.info(`Removing ${depName} folder in ${depFolder}...`);
 		await fs.promises.rm(depFolder, { recursive: true, force: true });
 		removeValue(depFolder, "PATH");
+		removeValue(path.join(depFolder, "bin"), "PATH");
 		removeKey("NPM_CONFIG_CACHE");
 		removeKey("NPM_CONFIG_STORE_DIR");
 		logger.info(`${depName} uninstalled successfully`);

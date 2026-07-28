@@ -38,7 +38,27 @@ function ollamaWindowsArtifact(name: string, sha256: string): ArtifactMetadata {
 	};
 }
 
-// Digests are from the immutable Ollama v0.32.5 GitHub release assets.
+function ollamaTarArtifact(
+	name: string,
+	sha256: string,
+	format: "tar.gz" | "tar.zst",
+): ArtifactMetadata {
+	return {
+		id: `ollama-${name}`,
+		version,
+		url: `https://github.com/ollama/ollama/releases/download/v${version}/${name}`,
+		allowedHosts: GITHUB_RELEASE_HOSTS,
+		verification: { type: "sha256", sha256 },
+		maxDownloadBytes: 2 * 1024 * 1024 * 1024,
+		archive: {
+			format,
+			allowSymlinks: true,
+			limits: { maxMembers: 5_000, maxExpandedBytes: 12 * 1024 * 1024 * 1024 },
+		},
+	};
+}
+
+// Digests are from Ollama v0.32.5's vendor-published sha256sum.txt release asset.
 const windowsArtifacts: Record<string, ArtifactMetadata> = {
 	amd64: ollamaWindowsArtifact(
 		"ollama-windows-amd64.zip",
@@ -47,6 +67,29 @@ const windowsArtifacts: Record<string, ArtifactMetadata> = {
 	arm64: ollamaWindowsArtifact(
 		"ollama-windows-arm64.zip",
 		"f7cf76916c24550033500a92fb56b3ce3d225f3d7cde0ce0438e62696b34507a",
+	),
+};
+
+const posixArtifacts: Record<string, ArtifactMetadata> = {
+	"linux-amd64": ollamaTarArtifact(
+		"ollama-linux-amd64.tar.zst",
+		"f7d6bdbcf71b83aa8670c4e7dc4b6936c0952fcf8b114eaf6a11cbadb9684214",
+		"tar.zst",
+	),
+	"linux-arm64": ollamaTarArtifact(
+		"ollama-linux-arm64.tar.zst",
+		"aa7e06b5683ee66c4a3ec68ea7236db43b5a5d0821f0dfe2c5a215f4462bddf4",
+		"tar.zst",
+	),
+	"macos-amd64": ollamaTarArtifact(
+		"ollama-darwin.tgz",
+		"5789dd037a86adb328c72c11fc45e6c558452d07e5b50814a8bdb7b0fbdbcd81",
+		"tar.gz",
+	),
+	"macos-arm64": ollamaTarArtifact(
+		"ollama-darwin.tgz",
+		"5789dd037a86adb328c72c11fc45e6c558452d07e5b50814a8bdb7b0fbdbcd81",
+		"tar.gz",
 	),
 };
 
@@ -77,14 +120,14 @@ export async function install(
 ): Promise<{ success: boolean }> {
 	const platform = getOS();
 	const arch = getArch();
-	const artifact = platform === "windows" ? windowsArtifacts[arch] : undefined;
+	const artifact =
+		platform === "windows"
+			? windowsArtifacts[arch]
+			: posixArtifacts[`${platform}-${arch}`];
 	if (!artifact) {
 		io.to(id).emit("installDep", {
 			type: "error",
-			content:
-				platform === "windows"
-					? `No verified Ollama artifact is available for ${arch}.`
-					: "Bundled Ollama installation is disabled on this platform because the vendor archives contain links or use an unsupported preflight compression format.",
+			content: `No verified Ollama artifact is available for ${platform} (${arch}).`,
 		});
 		return { success: false };
 	}
@@ -123,6 +166,17 @@ export async function install(
 			artifact,
 			tempDir,
 		);
+		const executable = path.join(
+			extractionStage,
+			platform === "windows"
+				? "ollama.exe"
+				: platform === "linux"
+					? path.join("bin", "ollama")
+					: "ollama",
+		);
+		if (!(await fsp.lstat(executable)).isFile())
+			throw new Error("Verified Ollama archive is missing its executable.");
+		if (platform !== "windows") await fsp.access(executable, fs.constants.X_OK);
 		await promoteStagedDirectory(extractionStage, depFolder);
 		extractionStage = undefined;
 	} catch (error) {
@@ -141,7 +195,10 @@ export async function install(
 
 	const cacheDir = path.join(binFolder, "cache", depName);
 	fs.mkdirSync(path.join(depFolder, "models"), { recursive: true });
-	addValue("PATH", depFolder);
+	addValue(
+		"PATH",
+		platform === "linux" ? path.join(depFolder, "bin") : depFolder,
+	);
 	addValue("OLLAMA_MODELS", path.join(depFolder, "models"));
 	addValue("OLLAMA_HOST", "http://localhost:11434");
 	addValue("OLLAMA_CACHE", cacheDir);
@@ -160,6 +217,7 @@ export async function uninstall(binFolder: string): Promise<void> {
 		await fs.promises.rm(cacheDir, { recursive: true, force: true });
 		await fs.promises.rm(depFolder, { recursive: true, force: true });
 		removeValue(depFolder, "PATH");
+		removeValue(path.join(depFolder, "bin"), "PATH");
 		removeKey("OLLAMA_MODELS");
 		removeKey("OLLAMA_HOST");
 		removeKey("OLLAMA_CACHE");

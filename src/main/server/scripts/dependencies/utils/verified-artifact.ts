@@ -4,9 +4,9 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import https from "node:https";
 import path from "node:path";
-import { type Readable, Transform } from "node:stream";
+import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
+import { createGunzip, createInflateRaw } from "node:zlib";
 
 const MAX_REDIRECTS = 5;
 const DEFAULT_MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
@@ -22,7 +22,7 @@ export const GITHUB_RELEASE_HOSTS = [
 	"release-assets.githubusercontent.com",
 ] as const;
 
-export type ArchiveFormat = "tar.gz" | "zip";
+export type ArchiveFormat = "tar.gz" | "tar.zst" | "zip";
 
 export interface ArchiveLimits {
 	maxMembers?: number;
@@ -50,6 +50,7 @@ export interface ArtifactMetadata {
 	archive?: {
 		format: ArchiveFormat;
 		limits?: ArchiveLimits;
+		allowSymlinks?: boolean;
 	};
 }
 
@@ -343,7 +344,8 @@ function validateMemberPath(memberPath: string): string {
 	if (portablePath.split("/").includes("..")) {
 		throw new Error(`Archive contains a traversal member path: ${memberPath}.`);
 	}
-	return path.posix.normalize(portablePath.replace(/^\.\//, ""));
+	const normalized = path.posix.normalize(portablePath.replace(/^\.\//, ""));
+	return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
 function archiveLimits(limits: ArchiveLimits = {}): Required<ArchiveLimits> {
@@ -436,54 +438,129 @@ function verifyTarHeaderChecksum(header: Buffer): void {
 
 function parsePaxAttributes(payload: Buffer): Record<string, string> {
 	const attributes: Record<string, string> = {};
+	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let offset = 0;
 	while (offset < payload.length) {
 		const separator = payload.indexOf(0x20, offset);
 		if (separator === -1)
 			throw new Error("Archive contains invalid PAX metadata.");
-		const length = Number.parseInt(
-			payload.toString("ascii", offset, separator),
-			10,
-		);
+		const lengthText = payload.toString("ascii", offset, separator);
+		if (!/^[1-9][0-9]*$/.test(lengthText))
+			throw new Error("Archive contains invalid PAX metadata length.");
+		const length = Number(lengthText);
 		if (
 			!Number.isSafeInteger(length) ||
-			length <= 0 ||
+			length < separator - offset + 4 ||
 			offset + length > payload.length
 		) {
 			throw new Error("Archive contains invalid PAX metadata length.");
 		}
-		const record = payload.toString("utf8", separator + 1, offset + length - 1);
-		const equals = record.indexOf("=");
+		if (payload[offset + length - 1] !== 0x0a)
+			throw new Error("Archive contains invalid PAX metadata newline.");
+		const recordBytes = payload.subarray(separator + 1, offset + length - 1);
+		const equals = recordBytes.indexOf(0x3d);
 		if (equals <= 0) throw new Error("Archive contains invalid PAX metadata.");
-		attributes[record.slice(0, equals)] = record.slice(equals + 1);
+		const keyBytes = recordBytes.subarray(0, equals);
+		if (keyBytes.some((byte) => byte > 0x7f))
+			throw new Error("Archive contains a non-ASCII PAX metadata key.");
+		const key = keyBytes.toString("ascii");
+		if (!/^[A-Za-z0-9_.-]+$/.test(key))
+			throw new Error("Archive contains an invalid PAX metadata key.");
+		let value: string;
+		try {
+			value = decoder.decode(recordBytes.subarray(equals + 1));
+		} catch {
+			if (
+				!key.startsWith("LIBARCHIVE.xattr.") &&
+				!key.startsWith("SCHILY.xattr.")
+			)
+				throw new Error("Archive contains invalid UTF-8 PAX metadata.");
+			value = "<opaque-xattr>";
+		}
+		if (Object.hasOwn(attributes, key))
+			throw new Error(`Archive contains duplicate PAX metadata key: ${key}.`);
+		attributes[key] = value;
 		offset += length;
 	}
 	return attributes;
 }
 
-async function preflightTarGz(
-	archivePath: string,
-	limitsInput?: ArchiveLimits,
-): Promise<void> {
+interface TarMember {
+	name: string;
+	type: "file" | "directory" | "symlink";
+	size?: number;
+	linkTarget?: string;
+}
+
+interface TarManifest {
+	members: Map<string, TarMember>;
+}
+
+interface ZipMember extends TarMember {
+	dataOffset: number;
+	compressedSize: number;
+	method: number;
+	crc: number;
+	mode: number;
+}
+
+interface ZipManifest extends TarManifest {
+	members: Map<string, ZipMember>;
+}
+
+function maximumTarContainerBytes(limitsInput?: ArchiveLimits): number {
 	const limits = archiveLimits(limitsInput);
-	const source = fs.createReadStream(archivePath).pipe(createGunzip());
+	return limits.maxExpandedBytes + limits.maxMembers * 1024 + 1024;
+}
+
+async function preflightTarStream(
+	source: Readable,
+	limitsInput?: ArchiveLimits,
+	allowSymlinks = false,
+): Promise<TarManifest> {
+	const limits = archiveLimits(limitsInput);
 	const reader = new StreamReader(source);
 	let memberCount = 0;
 	let expandedBytes = 0;
 	let pendingLongName: string | undefined;
 	let pendingPax: Record<string, string> = {};
-	let globalPax: Record<string, string> = {};
 	const names = new Set<string>();
+	const members = new Map<string, TarMember>();
 
 	try {
 		while (true) {
 			const header = await reader.read(512);
-			if (!header) break;
-			if (header.every((byte) => byte === 0)) break;
+			if (!header)
+				throw new Error("Tar archive is missing its zero end blocks.");
+			if (header.every((byte) => byte === 0)) {
+				if (pendingLongName !== undefined || Object.keys(pendingPax).length > 0)
+					throw new Error("Tar archive ends with unapplied path metadata.");
+				const second = await reader.read(512);
+				if (!second || !second.every((byte) => byte === 0))
+					throw new Error("Tar archive is missing its second zero end block.");
+				let trailing = await reader.read(512);
+				while (trailing) {
+					if (!trailing.every((byte) => byte === 0))
+						throw new Error("Tar archive contains nonzero trailing data.");
+					trailing = await reader.read(512);
+				}
+				break;
+			}
 			verifyTarHeaderChecksum(header);
 			const headerSize = readTarNumber(header.subarray(124, 136), "size");
 			const type = String.fromCharCode(header[156] || 0);
-			const prefix = readTarString(header.subarray(345, 500));
+			const signature = header.subarray(257, 265);
+			const isPosixUstar = signature.equals(
+				Buffer.from(`ustar${String.fromCharCode(0)}00`, "ascii"),
+			);
+			if (!isPosixUstar && !signature.equals(Buffer.alloc(8))) {
+				throw new Error(
+					"Archive contains an unsupported tar header signature.",
+				);
+			}
+			const prefix = isPosixUstar
+				? readTarString(header.subarray(345, 500))
+				: "";
 			const headerName = readTarString(header.subarray(0, 100));
 			const rawName = prefix ? `${prefix}/${headerName}` : headerName;
 			memberCount += 1;
@@ -504,19 +581,33 @@ async function preflightTarGz(
 				}
 				const payload = (await reader.read(headerSize)) ?? Buffer.alloc(0);
 				if (type === "L") {
+					if (
+						pendingLongName !== undefined ||
+						Object.keys(pendingPax).length > 0
+					)
+						throw new Error(
+							"Archive contains mixed or repeated path metadata.",
+						);
 					pendingLongName = readTarString(payload);
 				} else if (type === "K") {
 					throw new Error("Archive contains a link target entry.");
 				} else if (type === "x") {
+					if (
+						pendingLongName !== undefined ||
+						Object.keys(pendingPax).length > 0
+					)
+						throw new Error(
+							"Archive contains mixed or repeated path metadata.",
+						);
 					pendingPax = parsePaxAttributes(payload);
 				} else {
-					globalPax = { ...globalPax, ...parsePaxAttributes(payload) };
+					throw new Error("Archive contains unsupported global PAX metadata.");
 				}
 				await reader.skip((512 - (headerSize % 512)) % 512);
 				continue;
 			}
 
-			const pax = { ...globalPax, ...pendingPax };
+			const pax = pendingPax;
 			const memberName = pax.path ?? pendingLongName ?? rawName;
 			pendingLongName = undefined;
 			pendingPax = {};
@@ -525,14 +616,21 @@ async function preflightTarGz(
 			) {
 				throw new Error("Archive contains unsupported sparse tar metadata.");
 			}
-			if (pax.linkpath) {
-				throw new Error("Archive contains a link target.");
-			}
-			if (pax.size !== undefined && Number(pax.size) !== headerSize) {
-				throw new Error("Archive contains inconsistent PAX size metadata.");
+			if (pax.size !== undefined) {
+				if (!/^(0|[1-9][0-9]*)$/.test(pax.size))
+					throw new Error("Archive contains invalid PAX size metadata.");
+				const paxSize = BigInt(pax.size);
+				if (
+					paxSize > BigInt(Number.MAX_SAFE_INTEGER) ||
+					Number(paxSize) !== headerSize
+				)
+					throw new Error("Archive contains inconsistent PAX size metadata.");
 			}
 
-			if (!["\0", "0", "5"].includes(type)) {
+			if (
+				!["\0", "0", "2", "5"].includes(type) ||
+				(type === "2" && !allowSymlinks)
+			) {
 				throw new Error(
 					`Archive contains a link or special tar entry (${type}).`,
 				);
@@ -543,11 +641,180 @@ async function preflightTarGz(
 				throw new Error(`Archive contains a duplicate member: ${memberName}.`);
 			}
 			names.add(comparisonName);
+			const memberType =
+				type === "5" ? "directory" : type === "2" ? "symlink" : "file";
+			const headerLinkTarget = readTarString(header.subarray(157, 257));
+			const linkTarget = pax.linkpath ?? headerLinkTarget;
+			if (memberType === "symlink") {
+				if (
+					!linkTarget ||
+					path.posix.isAbsolute(linkTarget.replace(/\\/g, "/")) ||
+					/^[a-zA-Z]:/.test(linkTarget) ||
+					linkTarget.includes("\0") ||
+					/[\x01-\x1f\x7f]/.test(linkTarget)
+				) {
+					throw new Error(
+						`Archive symlink ${memberName} has an invalid target.`,
+					);
+				}
+			} else if (linkTarget) {
+				throw new Error("Archive contains a link target on a non-link entry.");
+			}
+			members.set(comparisonName, {
+				name: normalizedName,
+				type: memberType,
+				...(memberType === "file" ? { size: headerSize } : {}),
+				...(memberType === "symlink" ? { linkTarget } : {}),
+			});
 
 			await reader.skip(headerSize + ((512 - (headerSize % 512)) % 512));
 		}
+		validateTarSymlinks(members);
+		return { members };
 	} finally {
 		source.destroy();
+	}
+}
+
+function validateTarSymlinks(members: Map<string, TarMember>): void {
+	const key = (name: string): string => name.toLocaleLowerCase("en-US");
+	const implicitDirectories = new Set<string>();
+	for (const member of members.values()) {
+		const parts = member.name.split("/");
+		for (let index = 1; index < parts.length; index += 1) {
+			const parent = parts.slice(0, index).join("/");
+			implicitDirectories.add(key(parent));
+			if (members.get(key(parent))?.type === "symlink") {
+				throw new Error(
+					`Archive member ${member.name} traverses through a symlink ancestor.`,
+				);
+			}
+		}
+	}
+
+	const resolving = new Set<string>();
+	const resolve = (member: TarMember): TarMember | "directory" => {
+		if (member.type !== "symlink") return member;
+		const memberKey = key(member.name);
+		if (resolving.has(memberKey))
+			throw new Error("Archive contains a symlink cycle.");
+		resolving.add(memberKey);
+		const portableTarget = member.linkTarget?.replace(/\\/g, "/") ?? "";
+		const resolvedName = path.posix.normalize(
+			path.posix.join(path.posix.dirname(member.name), portableTarget),
+		);
+		if (
+			resolvedName === ".." ||
+			resolvedName.startsWith("../") ||
+			path.posix.isAbsolute(resolvedName)
+		) {
+			throw new Error(
+				`Archive symlink ${member.name} escapes the archive root.`,
+			);
+		}
+		const target = members.get(key(resolvedName));
+		let result: TarMember | "directory";
+		if (target) result = resolve(target);
+		else if (implicitDirectories.has(key(resolvedName))) result = "directory";
+		else
+			throw new Error(`Archive symlink ${member.name} has a dangling target.`);
+		resolving.delete(memberKey);
+		return result;
+	};
+	for (const member of members.values())
+		if (member.type === "symlink") resolve(member);
+}
+
+async function preflightPlainTar(
+	archivePath: string,
+	limits?: ArchiveLimits,
+	allowSymlinks = false,
+): Promise<TarManifest> {
+	return preflightTarStream(
+		fs.createReadStream(archivePath),
+		limits,
+		allowSymlinks,
+	);
+}
+
+async function preflightTarGz(
+	archivePath: string,
+	limits?: ArchiveLimits,
+	allowSymlinks = false,
+): Promise<TarManifest> {
+	const input = fs.createReadStream(archivePath);
+	const gunzip = createGunzip();
+	let decompressedBytes = 0;
+	const meter = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			decompressedBytes += chunk.length;
+			if (decompressedBytes > maximumTarContainerBytes(limits))
+				callback(
+					new Error("Gzip archive exceeds its decompressed size limit."),
+				);
+			else callback(null, chunk);
+		},
+	});
+	input.pipe(gunzip).pipe(meter);
+	try {
+		return await preflightTarStream(meter, limits, allowSymlinks);
+	} finally {
+		input.destroy();
+		gunzip.destroy();
+		meter.destroy();
+	}
+}
+
+async function decompressZstdToTar(
+	archivePath: string,
+	tarPath: string,
+	limitsInput?: ArchiveLimits,
+): Promise<void> {
+	const maximumTarBytes = maximumTarContainerBytes(limitsInput);
+	let outputBytes = 0;
+	const decoder = spawn("zstd", ["-dc", "-M128MB", "--", archivePath], {
+		shell: false,
+		windowsHide: true,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let stderr = "";
+	decoder.stderr.on("data", (data) => {
+		if (stderr.length < 16_384) stderr += data.toString();
+	});
+	const completed = new Promise<void>((resolve, reject) => {
+		decoder.on("error", reject);
+		decoder.on("close", (code) => {
+			if (code === 0) resolve();
+			else reject(new Error(`Zstandard decoder failed (${code}): ${stderr}`));
+		});
+	});
+	const meter = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			outputBytes += chunk.byteLength;
+			if (outputBytes > maximumTarBytes) {
+				callback(
+					new Error("Zstandard archive exceeds its decompressed size limit."),
+				);
+				return;
+			}
+			callback(null, chunk);
+		},
+	});
+	try {
+		await Promise.all([
+			pipeline(
+				decoder.stdout,
+				meter,
+				fs.createWriteStream(tarPath, { flags: "wx", mode: 0o600 }),
+			),
+			completed,
+		]);
+	} catch (error) {
+		decoder.kill();
+		await fsp.rm(tarPath, { force: true });
+		throw new Error("Invalid or oversized Zstandard archive.", {
+			cause: error,
+		});
 	}
 }
 
@@ -555,7 +822,82 @@ function decodeZipName(bytes: Buffer, flags: number): string {
 	if ((flags & 0x800) === 0 && bytes.some((byte) => byte > 0x7f)) {
 		throw new Error("Archive contains a non-UTF-8 legacy zip member name.");
 	}
-	return bytes.toString((flags & 0x800) !== 0 ? "utf8" : "ascii");
+	if ((flags & 0x800) === 0) return bytes.toString("ascii");
+	try {
+		return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+	} catch {
+		throw new Error("Archive contains an invalid UTF-8 zip member name.");
+	}
+}
+
+function validateZipExtraFields(extra: Buffer): void {
+	let offset = 0;
+	while (offset < extra.length) {
+		if (offset + 4 > extra.length)
+			throw new Error("Zip archive contains a truncated extra field.");
+		const id = extra.readUInt16LE(offset);
+		const length = extra.readUInt16LE(offset + 2);
+		offset += 4;
+		if (offset + length > extra.length)
+			throw new Error("Zip archive contains an invalid extra field length.");
+		if (id === 0x7075)
+			throw new Error("Zip archive contains a Unicode path extra field.");
+		if (![0x000a, 0x5455, 0x7875].includes(id))
+			throw new Error(
+				`Zip archive contains unsupported extra field 0x${id.toString(16)}.`,
+			);
+		if (id === 0x5455) {
+			const flags = extra[offset];
+			const availableTimestamps =
+				(flags & 1) + ((flags >> 1) & 1) + ((flags >> 2) & 1);
+			const storedTimestamps = (length - 1) / 4;
+			if (
+				length < 1 ||
+				!Number.isInteger(storedTimestamps) ||
+				storedTimestamps > availableTimestamps ||
+				(flags & ~7) !== 0
+			)
+				throw new Error("Zip archive contains invalid timestamp metadata.");
+		}
+		if (id === 0x7875) {
+			const uidLength = extra[offset + 1] ?? 0;
+			const gidLengthOffset = offset + 2 + uidLength;
+			const gidLength = extra[gidLengthOffset] ?? 0;
+			if (
+				length < 3 ||
+				extra[offset] !== 1 ||
+				uidLength < 1 ||
+				uidLength > 8 ||
+				gidLength < 1 ||
+				gidLength > 8 ||
+				3 + uidLength + gidLength !== length
+			)
+				throw new Error("Zip archive contains invalid UID/GID metadata.");
+		}
+		if (id === 0x000a) {
+			if (
+				length < 4 ||
+				!extra.subarray(offset, offset + 4).equals(Buffer.alloc(4))
+			)
+				throw new Error("Zip archive contains invalid NTFS metadata.");
+			let attributeOffset = offset + 4;
+			while (attributeOffset < offset + length) {
+				if (attributeOffset + 4 > offset + length)
+					throw new Error("Zip archive contains truncated NTFS metadata.");
+				const tag = extra.readUInt16LE(attributeOffset);
+				const attributeLength = extra.readUInt16LE(attributeOffset + 2);
+				attributeOffset += 4;
+				if (
+					tag !== 1 ||
+					attributeLength !== 24 ||
+					attributeOffset + attributeLength > offset + length
+				)
+					throw new Error("Zip archive contains unsupported NTFS metadata.");
+				attributeOffset += attributeLength;
+			}
+		}
+		offset += length;
+	}
 }
 
 async function readFileRange(
@@ -569,10 +911,84 @@ async function readFileRange(
 	return buffer;
 }
 
+const CRC32_TABLE = Uint32Array.from({ length: 256 }, (_, value) => {
+	let crc = value;
+	for (let bit = 0; bit < 8; bit += 1)
+		crc = (crc & 1) !== 0 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+	return crc >>> 0;
+});
+
+async function validateZipMemberData(
+	archivePath: string,
+	member: ZipMember,
+	limits: Required<ArchiveLimits>,
+	aggregate: { bytes: number },
+	destinationPath?: string,
+): Promise<void> {
+	let actualSize = 0;
+	let crc = 0xffffffff;
+	const verifier = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			actualSize += chunk.length;
+			aggregate.bytes += chunk.length;
+			if (
+				actualSize > limits.maxMemberBytes ||
+				aggregate.bytes > limits.maxExpandedBytes ||
+				actualSize > (member.size ?? 0)
+			) {
+				callback(
+					new Error(`Zip member ${member.name} exceeds its actual size limit.`),
+				);
+				return;
+			}
+			for (const byte of chunk)
+				crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+			callback(null, chunk);
+		},
+	});
+	const compressed =
+		member.compressedSize === 0
+			? Readable.from([])
+			: fs.createReadStream(archivePath, {
+					start: member.dataOffset,
+					end: member.dataOffset + member.compressedSize - 1,
+				});
+	const streams: Parameters<typeof pipeline> =
+		member.method === 8
+			? [compressed, createInflateRaw(), verifier]
+			: [compressed, verifier];
+	if (destinationPath)
+		streams.push(
+			fs.createWriteStream(destinationPath, { flags: "wx", mode: 0o600 }),
+		);
+	else
+		streams.push(
+			new Writable({
+				write(_chunk, _encoding, callback) {
+					callback();
+				},
+			}),
+		);
+	try {
+		await pipeline(...streams);
+	} finally {
+		compressed.destroy();
+		verifier.destroy();
+	}
+	if (actualSize !== member.size)
+		throw new Error(
+			`Zip member ${member.name} actual expanded size does not match metadata.`,
+		);
+	if ((crc ^ 0xffffffff) >>> 0 !== member.crc)
+		throw new Error(
+			`Zip member ${member.name} CRC-32 does not match metadata.`,
+		);
+}
+
 async function preflightZip(
 	archivePath: string,
 	limitsInput?: ArchiveLimits,
-): Promise<void> {
+): Promise<ZipManifest> {
 	const limits = archiveLimits(limitsInput);
 	const handle = await fsp.open(archivePath, "r");
 	try {
@@ -626,6 +1042,7 @@ async function preflightZip(
 		let offset = 0;
 		let expandedBytes = 0;
 		const names = new Set<string>();
+		const members = new Map<string, ZipMember>();
 		const memberRanges: Array<[number, number]> = [];
 		for (let entry = 0; entry < totalEntries; entry += 1) {
 			if (
@@ -643,6 +1060,7 @@ async function preflightZip(
 			const commentLength = central.readUInt16LE(offset + 32);
 			const externalAttributes = central.readUInt32LE(offset + 38);
 			const localOffset = central.readUInt32LE(offset + 42);
+			const crc = central.readUInt32LE(offset + 16);
 			const entryLength = 46 + nameLength + extraLength + commentLength;
 			if (offset + entryLength > central.length) {
 				throw new Error("Zip central directory member is truncated.");
@@ -654,15 +1072,28 @@ async function preflightZip(
 			) {
 				throw new Error("Zip64 archive members are not supported.");
 			}
-			if ((flags & 0x1) !== 0)
-				throw new Error("Encrypted zip members are not supported.");
+			if (
+				(flags & ~(0x800 | 0x6)) !== 0 ||
+				(method !== 8 && (flags & 0x6) !== 0)
+			)
+				throw new Error("Zip archive uses unsupported general-purpose flags.");
 			if (![0, 8].includes(method)) {
 				throw new Error(
 					`Zip archive uses unsupported compression method ${method}.`,
 				);
 			}
+			if (method === 0 && compressedSize !== expandedSize)
+				throw new Error(
+					"Stored zip member compressed and expanded sizes differ.",
+				);
 
 			const nameBytes = central.subarray(offset + 46, offset + 46 + nameLength);
+			validateZipExtraFields(
+				central.subarray(
+					offset + 46 + nameLength,
+					offset + 46 + nameLength + extraLength,
+				),
+			);
 			const memberName = decodeZipName(nameBytes, flags);
 			const normalizedName = validateMemberPath(memberName);
 			const comparisonName = normalizedName.toLocaleLowerCase("en-US");
@@ -705,9 +1136,12 @@ async function preflightZip(
 			if (localOffset + 30 > centralOffset) {
 				throw new Error("Zip local member header exceeds its bounds.");
 			}
+			const localFixed = await readFileRange(handle, 30, localOffset);
+			const localNameLength = localFixed.readUInt16LE(26);
+			const localExtraLength = localFixed.readUInt16LE(28);
 			const localHeader = await readFileRange(
 				handle,
-				30 + nameLength,
+				30 + localNameLength + localExtraLength,
 				localOffset,
 			);
 			if (localHeader.readUInt32LE(0) !== 0x04034b50) {
@@ -715,16 +1149,21 @@ async function preflightZip(
 			}
 			const localFlags = localHeader.readUInt16LE(6);
 			const localMethod = localHeader.readUInt16LE(8);
-			const localNameLength = localHeader.readUInt16LE(26);
-			const localExtraLength = localHeader.readUInt16LE(28);
+			const localCrc = localHeader.readUInt32LE(14);
+			const localCompressedSize = localHeader.readUInt32LE(18);
+			const localExpandedSize = localHeader.readUInt32LE(22);
 			if (
 				localFlags !== flags ||
 				localMethod !== method ||
+				localCrc !== crc ||
+				localCompressedSize !== compressedSize ||
+				localExpandedSize !== expandedSize ||
 				localNameLength !== nameLength ||
-				!localHeader.subarray(30).equals(nameBytes)
+				!localHeader.subarray(30, 30 + localNameLength).equals(nameBytes)
 			) {
 				throw new Error("Zip local and central member metadata do not match.");
 			}
+			validateZipExtraFields(localHeader.subarray(30 + localNameLength));
 			const dataStart = localOffset + 30 + localNameLength + localExtraLength;
 			const dataEnd = dataStart + compressedSize;
 			if (dataEnd > centralOffset)
@@ -737,11 +1176,25 @@ async function preflightZip(
 				throw new Error("Zip archive contains overlapping members.");
 			}
 			memberRanges.push([localOffset, dataEnd]);
+			members.set(comparisonName, {
+				name: normalizedName,
+				type: isDirectory ? "directory" : "file",
+				size: expandedSize,
+				dataOffset: dataStart,
+				compressedSize,
+				method,
+				crc,
+				mode: unixMode,
+			});
 			offset += entryLength;
 		}
 		if (offset !== central.length) {
 			throw new Error("Zip central directory contains trailing data.");
 		}
+		const aggregate = { bytes: 0 };
+		for (const member of members.values())
+			await validateZipMemberData(archivePath, member, limits, aggregate);
+		return { members };
 	} finally {
 		await handle.close();
 	}
@@ -751,10 +1204,21 @@ export async function preflightArchive(
 	archivePath: string,
 	format: ArchiveFormat,
 	limits?: ArchiveLimits,
+	allowSymlinks = false,
 ): Promise<void> {
 	if (format === "tar.gz") {
-		await preflightTarGz(archivePath, limits);
+		await preflightTarGz(archivePath, limits, allowSymlinks);
+	} else if (format === "tar.zst") {
+		const temporaryTar = `${archivePath}.${randomUUID()}.preflight.tar`;
+		try {
+			await decompressZstdToTar(archivePath, temporaryTar, limits);
+			await preflightPlainTar(temporaryTar, limits, allowSymlinks);
+		} finally {
+			await fsp.rm(temporaryTar, { force: true });
+		}
 	} else if (format === "zip") {
+		if (allowSymlinks)
+			throw new Error("Symlink opt-in is supported only for tar archives.");
 		await preflightZip(archivePath, limits);
 	} else {
 		throw new Error(`Unsupported archive format: ${String(format)}.`);
@@ -762,11 +1226,24 @@ export async function preflightArchive(
 }
 
 async function runExtractor(file: string, args: string[]): Promise<void> {
+	const env = { ...process.env };
+	for (const variable of [
+		"TAR_OPTIONS",
+		"TAR_READER_OPTIONS",
+		"TAR_WRITER_OPTIONS",
+		"UNZIP",
+		"UNZIPOPT",
+		"BSDTAR",
+		"LIBARCHIVE_OPTIONS",
+		"LIBARCHIVE_EXTRACT_OPTIONS",
+	])
+		delete env[variable];
 	await new Promise<void>((resolve, reject) => {
 		const child = spawn(file, args, {
 			shell: false,
 			windowsHide: true,
 			stdio: ["ignore", "ignore", "pipe"],
+			env,
 		});
 		let stderr = "";
 		child.stderr.on("data", (data) => {
@@ -780,12 +1257,50 @@ async function runExtractor(file: string, args: string[]): Promise<void> {
 	});
 }
 
+async function extractZip(
+	archivePath: string,
+	directory: string,
+	manifest: ZipManifest,
+	limitsInput?: ArchiveLimits,
+): Promise<void> {
+	const aggregate = { bytes: 0 };
+	const limits = archiveLimits(limitsInput);
+	for (const member of manifest.members.values()) {
+		const destination = path.join(directory, ...member.name.split("/"));
+		if (member.type === "directory") {
+			await fsp.mkdir(destination, { recursive: true, mode: 0o700 });
+			continue;
+		}
+		await fsp.mkdir(path.dirname(destination), {
+			recursive: true,
+			mode: 0o700,
+		});
+		try {
+			await validateZipMemberData(
+				archivePath,
+				member,
+				limits,
+				aggregate,
+				destination,
+			);
+			if ((member.mode & 0o111) !== 0)
+				await fsp.chmod(destination, 0o600 | (member.mode & 0o111));
+		} catch (error) {
+			await fsp.rm(destination, { force: true });
+			throw error;
+		}
+	}
+}
+
 async function postflightExtractedDirectory(
 	directory: string,
 	limitsInput?: ArchiveLimits,
+	manifest?: TarManifest,
 ): Promise<void> {
 	const limits = archiveLimits(limitsInput);
 	const stack = [directory];
+	const rootRealPath = await fsp.realpath(directory);
+	const seen = new Set<string>();
 	let memberCount = 0;
 	let expandedBytes = 0;
 	while (stack.length > 0) {
@@ -794,17 +1309,73 @@ async function postflightExtractedDirectory(
 		for (const entry of await fsp.readdir(current, { withFileTypes: true })) {
 			const entryPath = path.join(current, entry.name);
 			const stats = await fsp.lstat(entryPath);
+			const relativeName = path
+				.relative(directory, entryPath)
+				.split(path.sep)
+				.join("/");
+			const comparisonName = relativeName.toLocaleLowerCase("en-US");
+			seen.add(comparisonName);
+			const declared = manifest?.members.get(comparisonName);
 			memberCount += 1;
 			if (memberCount > limits.maxMembers)
 				throw new Error("Extracted archive has too many members.");
-			if (stats.isSymbolicLink() || (!stats.isDirectory() && !stats.isFile())) {
+			if (stats.isSymbolicLink()) {
+				if (declared?.type !== "symlink") {
+					throw new Error(
+						`Extracted archive contains an undeclared link: ${relativeName}.`,
+					);
+				}
+				const actualTarget = await fsp.readlink(entryPath);
+				if (actualTarget !== declared.linkTarget) {
+					throw new Error(
+						`Extracted archive link target changed: ${relativeName}.`,
+					);
+				}
+				const targetRealPath = await fsp.realpath(entryPath);
+				const relativeRealPath = path.relative(rootRealPath, targetRealPath);
+				if (
+					relativeRealPath === ".." ||
+					relativeRealPath.startsWith(`..${path.sep}`) ||
+					path.isAbsolute(relativeRealPath)
+				) {
+					throw new Error(
+						`Extracted archive link escapes its staging directory: ${relativeName}.`,
+					);
+				}
+				continue;
+			}
+			if (!stats.isDirectory() && !stats.isFile()) {
 				throw new Error(
 					`Extracted archive contains a link or special entry: ${entry.name}.`,
+				);
+			}
+			if (
+				manifest &&
+				!declared &&
+				(!stats.isDirectory() ||
+					![...manifest.members.keys()].some((name) =>
+						name.startsWith(`${comparisonName}/`),
+					))
+			) {
+				throw new Error(
+					`Extracted archive contains an undeclared member: ${relativeName}.`,
+				);
+			}
+			if (
+				declared &&
+				declared.type !== (stats.isDirectory() ? "directory" : "file")
+			) {
+				throw new Error(
+					`Extracted archive member type changed: ${relativeName}.`,
 				);
 			}
 			if (stats.isDirectory()) {
 				stack.push(entryPath);
 			} else {
+				if (declared?.size !== undefined && stats.size !== declared.size)
+					throw new Error(
+						`Extracted archive member size changed: ${relativeName}.`,
+					);
 				expandedBytes += stats.size;
 				if (
 					stats.size > limits.maxMemberBytes ||
@@ -813,6 +1384,12 @@ async function postflightExtractedDirectory(
 					throw new Error("Extracted archive exceeds its size limit.");
 				}
 			}
+		}
+	}
+	if (manifest) {
+		for (const [name, member] of manifest.members) {
+			if (!seen.has(name))
+				throw new Error(`Extracted archive is missing member: ${member.name}.`);
 		}
 	}
 }
@@ -825,11 +1402,38 @@ export async function extractVerifiedArchive(
 	if (!artifact.archive) {
 		throw new Error(`Archive metadata is unavailable for ${artifact.id}.`);
 	}
-	await preflightArchive(
-		artifactPath,
-		artifact.archive.format,
-		artifact.archive.limits,
-	);
+	let extractionArchivePath = artifactPath;
+	let temporaryTar: string | undefined;
+	let manifest: TarManifest | ZipManifest | undefined;
+	if (artifact.archive.format === "tar.zst") {
+		temporaryTar = `${artifactPath}.${randomUUID()}.verified.tar`;
+		await decompressZstdToTar(
+			artifactPath,
+			temporaryTar,
+			artifact.archive.limits,
+		);
+		extractionArchivePath = temporaryTar;
+		try {
+			manifest = await preflightPlainTar(
+				temporaryTar,
+				artifact.archive.limits,
+				artifact.archive.allowSymlinks,
+			);
+		} catch (error) {
+			await fsp.rm(temporaryTar, { force: true });
+			throw error;
+		}
+	} else {
+		if (artifact.archive.format === "tar.gz") {
+			manifest = await preflightTarGz(
+				artifactPath,
+				artifact.archive.limits,
+				artifact.archive.allowSymlinks,
+			);
+		} else {
+			manifest = await preflightZip(artifactPath, artifact.archive.limits);
+		}
+	}
 	const extractionDirectory = await createPrivateStagingDirectory(
 		temporaryRoot,
 		`${artifact.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}-extract-`,
@@ -838,32 +1442,39 @@ export async function extractVerifiedArchive(
 		if (artifact.archive.format === "tar.gz") {
 			await runExtractor("tar", [
 				"-xzf",
-				artifactPath,
+				extractionArchivePath,
+				"--no-same-owner",
+				"--no-same-permissions",
 				"-C",
 				extractionDirectory,
 			]);
-		} else if (process.platform === "win32") {
+		} else if (artifact.archive.format === "tar.zst") {
 			await runExtractor("tar", [
 				"-xf",
-				artifactPath,
+				extractionArchivePath,
+				"--no-same-owner",
+				"--no-same-permissions",
 				"-C",
 				extractionDirectory,
 			]);
 		} else {
-			await runExtractor("unzip", [
-				"-q",
+			await extractZip(
 				artifactPath,
-				"-d",
 				extractionDirectory,
-			]);
+				manifest as ZipManifest,
+				artifact.archive.limits,
+			);
 		}
 		await postflightExtractedDirectory(
 			extractionDirectory,
 			artifact.archive.limits,
+			manifest,
 		);
+		if (temporaryTar) await fsp.rm(temporaryTar, { force: true });
 		return extractionDirectory;
 	} catch (error) {
 		await fsp.rm(extractionDirectory, { recursive: true, force: true });
+		if (temporaryTar) await fsp.rm(temporaryTar, { force: true });
 		throw error;
 	}
 }
@@ -872,6 +1483,37 @@ export async function promoteStagedDirectory(
 	stagedDirectory: string,
 	destinationDirectory: string,
 ): Promise<void> {
-	await fsp.rm(destinationDirectory, { recursive: true, force: true });
-	await fsp.rename(stagedDirectory, destinationDirectory);
+	const stagedStats = await fsp.lstat(stagedDirectory);
+	if (!stagedStats.isDirectory() || stagedStats.isSymbolicLink())
+		throw new Error("Staged source must be a real directory.");
+	const backup = path.join(
+		path.dirname(destinationDirectory),
+		`.${path.basename(destinationDirectory)}.${randomUUID()}.backup`,
+	);
+	let backedUp = false;
+	try {
+		try {
+			await fsp.rename(destinationDirectory, backup);
+			backedUp = true;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+		try {
+			await fsp.rename(stagedDirectory, destinationDirectory);
+		} catch (error) {
+			if (backedUp) await fsp.rename(backup, destinationDirectory);
+			throw error;
+		}
+		if (backedUp) await fsp.rm(backup, { recursive: true, force: true });
+	} catch (error) {
+		if (backedUp) {
+			const destinationExists = await fsp.lstat(destinationDirectory).then(
+				() => true,
+				() => false,
+			);
+			if (!destinationExists)
+				await fsp.rename(backup, destinationDirectory).catch(() => {});
+		}
+		throw error;
+	}
 }
