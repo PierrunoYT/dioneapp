@@ -174,22 +174,33 @@ export function createOllamaRouter(io: SocketIOServer) {
 				shell: false,
 				env: ENVIRONMENT,
 				windowsHide: true,
+				// On Unix this creates an app-owned session/process group without
+				// changing stdio behavior. Windows ignores detached for ownership.
+				detached: process.platform !== "win32",
 			});
 			activeProcess = child;
-			await new Promise<void>((resolve, reject) => {
-				child.once("spawn", resolve);
-				child.once("error", reject);
-			});
-			registerOwnedChildProcess("ollama", child);
-
-			// Ollama output can contain request content; never persist raw stdout/stderr.
-			child.stdout?.resume();
-			child.stderr?.resume();
-
 			child.on("exit", (code) => {
 				logger.ai(`Ollama server exited with code ${code}`);
 				if (activeProcess === child) activeProcess = null;
 			});
+			await new Promise<void>((resolve, reject) => {
+				child.once("spawn", resolve);
+				child.once("error", reject);
+			});
+			await registerOwnedChildProcess("ollama", child, {
+				processGroupId: process.platform === "win32" ? undefined : child.pid,
+			});
+			if (
+				activeProcess !== child ||
+				child.exitCode !== null ||
+				child.signalCode !== null
+			) {
+				throw new Error("Ollama exited during startup");
+			}
+
+			// Ollama output can contain request content; never persist raw stdout/stderr.
+			child.stdout?.resume();
+			child.stderr?.resume();
 
 			logger.ai(`Ollama server started with PID ${child.pid}`);
 

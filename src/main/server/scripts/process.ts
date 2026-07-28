@@ -19,6 +19,12 @@ import {
 	createCommandDeadline,
 	resolveContainedWorkingDirectory,
 } from "./process-helpers";
+import {
+	type UnixSessionMember,
+	buildProcessSignalPlan,
+	parseUnixSessionMembers,
+	signalProcessPlan,
+} from "./process-ownership";
 
 export {
 	appendBoundedOutput,
@@ -60,6 +66,9 @@ interface ManagedProcess {
 	exited: Promise<void>;
 	rootExited: boolean;
 	knownPids: Set<number>;
+	processGroupIds: Set<number>;
+	sessionToken?: string;
+	ownershipReleaseTimer?: ReturnType<typeof setTimeout>;
 	terminating?: Promise<void>;
 }
 
@@ -130,13 +139,17 @@ const sanitizePathForLog = (p?: string) => {
 	}
 };
 
-const unregisterProcess = (appId: string, pid: number) => {
-	activeProcesses.delete(pid);
-	if (!appId || !processesByApp.has(appId)) return;
-	const set = processesByApp.get(appId);
-	set?.delete(pid);
+const unregisterProcess = (managed: ManagedProcess) => {
+	if (activeProcesses.get(managed.pid) !== managed) return;
+	if (managed.ownershipReleaseTimer) {
+		clearTimeout(managed.ownershipReleaseTimer);
+	}
+	activeProcesses.delete(managed.pid);
+	if (!managed.appId || !processesByApp.has(managed.appId)) return;
+	const set = processesByApp.get(managed.appId);
+	set?.delete(managed.pid);
 	if (set && set.size === 0) {
-		processesByApp.delete(appId);
+		processesByApp.delete(managed.appId);
 	}
 };
 
@@ -197,6 +210,105 @@ function isProcessAlive(pid: number): boolean {
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "EPERM";
 	}
+}
+
+function hasLiveProcessGroup(processGroupIds: Iterable<number>): boolean {
+	if (process.platform === "win32") return false;
+	return Array.from(processGroupIds).some((groupId) =>
+		isProcessAlive(-groupId),
+	);
+}
+
+async function getUnixSessionToken(pid: number): Promise<string | undefined> {
+	if (process.platform === "win32") return undefined;
+	// Linux reports the numeric session-leader PID as `sess`; detached children
+	// and node-pty leaders are known to create a new session.
+	if (process.platform === "linux") return String(pid);
+	try {
+		const stdout = await new Promise<string>((resolve, reject) => {
+			execFile(
+				"ps",
+				["-o", "sess=", "-p", String(pid)],
+				{ timeout: 3_000, maxBuffer: 64 * 1024 },
+				(error, output) => (error ? reject(error) : resolve(output)),
+			);
+		});
+		return stdout.trim().split(/\s+/)[0] || undefined;
+	} catch (error) {
+		logger.warn(`Failed to capture Unix session for ${pid}: ${error}`);
+		return undefined;
+	}
+}
+
+async function getUnixSessionMembers(
+	sessionToken?: string,
+): Promise<UnixSessionMember[] | undefined> {
+	if (process.platform === "win32") return [];
+	if (sessionToken === undefined) return undefined;
+	try {
+		const stdout = await new Promise<string>((resolve, reject) => {
+			execFile(
+				"ps",
+				["-axo", "pid=,pgid=,sess="],
+				{ timeout: 3_000, maxBuffer: 8 * 1024 * 1024 },
+				(error, output) => (error ? reject(error) : resolve(output)),
+			);
+		});
+		return parseUnixSessionMembers(stdout, sessionToken);
+	} catch (error) {
+		logger.warn(`Failed to enumerate Unix session ${sessionToken}: ${error}`);
+		return undefined;
+	}
+}
+
+async function refreshUnixSession(
+	managed: ManagedProcess,
+): Promise<boolean | undefined> {
+	const members = await getUnixSessionMembers(managed.sessionToken);
+	if (members === undefined) return undefined;
+	managed.knownPids = new Set(members.map((member) => member.pid));
+	managed.processGroupIds = new Set(
+		members.map((member) => member.processGroupId),
+	);
+	return members.length > 0;
+}
+
+async function releaseOwnershipWhenSessionExits(
+	managed: ManagedProcess,
+): Promise<void> {
+	if (managed.terminating || activeProcesses.get(managed.pid) !== managed) {
+		return;
+	}
+	const members = await getUnixSessionMembers(managed.sessionToken);
+	if (members === undefined) {
+		if (
+			managed.sessionToken === undefined &&
+			!hasLiveProcessGroup(managed.processGroupIds)
+		) {
+			unregisterProcess(managed);
+			return;
+		}
+		managed.ownershipReleaseTimer = setTimeout(
+			() => void releaseOwnershipWhenSessionExits(managed),
+			1_000,
+		);
+		managed.ownershipReleaseTimer.unref();
+		return;
+	}
+	managed.knownPids = new Set(members.map((member) => member.pid));
+	managed.processGroupIds = new Set(
+		members.map((member) => member.processGroupId),
+	);
+	const sessionAlive = members.length > 0;
+	if (!sessionAlive && !hasLiveProcessGroup(managed.processGroupIds)) {
+		unregisterProcess(managed);
+		return;
+	}
+	managed.ownershipReleaseTimer = setTimeout(
+		() => void releaseOwnershipWhenSessionExits(managed),
+		1_000,
+	);
+	managed.ownershipReleaseTimer.unref();
 }
 
 async function getOwnedProcessTree(pid: number): Promise<number[]> {
@@ -260,42 +372,77 @@ function signalProcessTree(
 	pids: number[],
 	rootPid: number,
 	signal: NodeJS.Signals,
+	processGroupIds: Iterable<number>,
 ) {
-	const ordered = [
-		...pids.filter((pid) => pid !== rootPid).reverse(),
-		...(pids.includes(rootPid) ? [rootPid] : []),
-	];
-	for (const pid of ordered) {
+	signalProcessPlan(
+		buildProcessSignalPlan(rootPid, pids, processGroupIds),
+		signal,
+		process.kill,
+		(target, error) =>
+			logger.warn(`Failed to signal owned process target ${target}: ${error}`),
+	);
+}
+
+async function forceTerminateWindowsTree(
+	managed: ManagedProcess,
+): Promise<void> {
+	if (managed.pty) {
 		try {
-			process.kill(pid, signal);
+			// node-pty enumerates attached console processes before closing ConPTY.
+			managed.pty.kill();
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-				logger.warn(`Failed to signal owned process ${pid}: ${error}`);
-			}
+			logger.warn(`Failed to close ConPTY ${managed.pid}: ${error}`);
 		}
 	}
+	if (managed.rootExited) return;
+	await new Promise<void>((resolve) => {
+		execFile(
+			"taskkill.exe",
+			["/PID", String(managed.pid), "/T", "/F"],
+			{ timeout: PROCESS_ESCALATION_MS, windowsHide: true },
+			(error) => {
+				if (error && isProcessAlive(managed.pid)) {
+					logger.warn(
+						`Failed to terminate Windows process tree ${managed.pid}: ${error}`,
+					);
+				}
+				resolve();
+			},
+		);
+	});
 }
 
 async function waitForProcessTreeExit(
 	pids: number[],
 	timeoutMs: number,
-): Promise<number[]> {
+	processGroupIds: Iterable<number>,
+): Promise<{ survivors: number[]; groupAlive: boolean }> {
 	const deadline = Date.now() + timeoutMs;
 	let survivors = pids.filter(isProcessAlive);
-	while (survivors.length > 0 && Date.now() < deadline) {
+	let groupAlive = hasLiveProcessGroup(processGroupIds);
+	while ((survivors.length > 0 || groupAlive) && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		survivors = survivors.filter(isProcessAlive);
+		groupAlive = hasLiveProcessGroup(processGroupIds);
 	}
-	return survivors;
+	return { survivors, groupAlive };
 }
 
 async function terminateManagedProcess(managed: ManagedProcess): Promise<void> {
 	if (managed.terminating) return managed.terminating;
 	const termination = (async () => {
-		const refreshedPids = await getOwnedProcessTree(managed.pid);
+		let sessionEnumerationFailed =
+			managed.sessionToken !== undefined &&
+			(await refreshUnixSession(managed)) === undefined;
+		const refreshedPids = managed.rootExited
+			? []
+			: await getOwnedProcessTree(managed.pid);
 		const ownedPids = Array.from(
 			new Set([...managed.knownPids, ...refreshedPids]),
-		).filter(isProcessAlive);
+		).filter(
+			(pid) =>
+				(!managed.rootExited || pid !== managed.pid) && isProcessAlive(pid),
+		);
 		managed.knownPids = new Set(ownedPids);
 		if (managed.pty) {
 			try {
@@ -305,31 +452,88 @@ async function terminateManagedProcess(managed: ManagedProcess): Promise<void> {
 			}
 		}
 		if (
-			ownedPids.length > 0 &&
+			(ownedPids.length > 0 || hasLiveProcessGroup(managed.processGroupIds)) &&
 			(process.platform !== "win32" || !managed.pty)
 		) {
-			signalProcessTree(ownedPids, managed.pid, "SIGTERM");
-		}
-		let survivors = await waitForProcessTreeExit(ownedPids, PROCESS_GRACE_MS);
-		if (survivors.length > 0) {
-			const refreshed = await getOwnedProcessTree(managed.pid);
-			survivors = Array.from(new Set([...survivors, ...refreshed])).filter(
-				isProcessAlive,
+			signalProcessTree(
+				ownedPids,
+				managed.pid,
+				"SIGTERM",
+				managed.processGroupIds,
 			);
+		}
+		let { survivors, groupAlive } = await waitForProcessTreeExit(
+			ownedPids,
+			PROCESS_GRACE_MS,
+			managed.processGroupIds,
+		);
+		const sessionAliveAfterGrace = await refreshUnixSession(managed);
+		sessionEnumerationFailed ||=
+			managed.sessionToken !== undefined &&
+			sessionAliveAfterGrace === undefined;
+		const refreshed = managed.rootExited
+			? []
+			: await getOwnedProcessTree(managed.pid);
+		survivors = Array.from(
+			new Set([...survivors, ...managed.knownPids, ...refreshed]),
+		).filter(
+			(pid) =>
+				(!managed.rootExited || pid !== managed.pid) && isProcessAlive(pid),
+		);
+		groupAlive = hasLiveProcessGroup(managed.processGroupIds);
+		if (survivors.length > 0 || groupAlive || sessionAliveAfterGrace === true) {
 			managed.knownPids = new Set(survivors);
-			signalProcessTree(survivors, managed.pid, "SIGKILL");
-			survivors = await waitForProcessTreeExit(
+			if (process.platform === "win32") {
+				await forceTerminateWindowsTree(managed);
+			}
+			signalProcessTree(
+				survivors,
+				managed.pid,
+				"SIGKILL",
+				managed.processGroupIds,
+			);
+			({ survivors, groupAlive } = await waitForProcessTreeExit(
 				survivors,
 				PROCESS_ESCALATION_MS,
-			);
+				managed.processGroupIds,
+			));
 		}
-		if (survivors.length > 0) {
+		const finalSessionAlive = await refreshUnixSession(managed);
+		sessionEnumerationFailed ||=
+			managed.sessionToken !== undefined && finalSessionAlive === undefined;
+		const finalSessionPids = Array.from(managed.knownPids).filter(
+			isProcessAlive,
+		);
+		if (finalSessionPids.length > 0 || finalSessionAlive === true) {
+			signalProcessTree(
+				finalSessionPids,
+				managed.pid,
+				"SIGKILL",
+				managed.processGroupIds,
+			);
+			({ survivors, groupAlive } = await waitForProcessTreeExit(
+				finalSessionPids,
+				PROCESS_ESCALATION_MS,
+				managed.processGroupIds,
+			));
+			const remainingSession = await refreshUnixSession(managed);
+			sessionEnumerationFailed ||=
+				managed.sessionToken !== undefined && remainingSession === undefined;
+			if (remainingSession === true) groupAlive = true;
+		}
+		if (survivors.length > 0 || groupAlive || sessionEnumerationFailed) {
 			managed.knownPids = new Set(survivors);
 			throw new Error(
-				`Owned process tree did not stop: ${survivors.join(", ")}`,
+				`Owned process containment did not stop: ${[
+					...survivors,
+					...(groupAlive ? ["owned Unix session"] : []),
+					...(sessionEnumerationFailed
+						? ["Unix session could not be verified"]
+						: []),
+				].join(", ")}`,
 			);
 		}
-		unregisterProcess(managed.appId, managed.pid);
+		unregisterProcess(managed);
 		logger.info(`Stopped owned process tree rooted at ${managed.pid}`);
 	})();
 	managed.terminating = termination;
@@ -358,31 +562,44 @@ const dropProcesses = async (
 	await Promise.all(managed.map(terminateManagedProcess));
 };
 
-export function registerOwnedChildProcess(
+export async function registerOwnedChildProcess(
 	appId: string,
 	child: ChildProcess,
-): void {
+	options?: { processGroupId?: number },
+): Promise<void> {
 	if (!child.pid)
 		throw new Error("Cannot register a child process without a PID");
 	let resolveExit: () => void = () => {};
 	const exited = new Promise<void>((resolve) => {
 		resolveExit = resolve;
 	});
+	const managedRef: { current?: ManagedProcess } = {};
+	let rootExited = false;
+	child.once("exit", () => {
+		rootExited = true;
+		resolveExit();
+		if (managedRef.current && !managedRef.current.terminating) {
+			managedRef.current.rootExited = true;
+			void releaseOwnershipWhenSessionExits(managedRef.current);
+		}
+	});
+	const sessionToken = await getUnixSessionToken(child.pid);
 	const managed: ManagedProcess = {
 		appId,
 		operationId: `${appId}:service`,
 		pid: child.pid,
 		child,
 		exited,
-		rootExited: false,
+		rootExited,
 		knownPids: new Set([child.pid]),
+		processGroupIds: new Set(
+			options?.processGroupId === undefined ? [] : [options.processGroupId],
+		),
+		sessionToken,
 	};
-	child.once("exit", () => {
-		managed.rootExited = true;
-		resolveExit();
-		if (!managed.terminating) unregisterProcess(appId, managed.pid);
-	});
+	managedRef.current = managed;
 	trackProcess(managed);
+	if (rootExited) void releaseOwnershipWhenSessionExits(managed);
 }
 
 export const stopActiveProcess = async (
@@ -610,15 +827,6 @@ export const executeCommand = async (
 		const exitResult = new Promise<{ exitCode: number }>((resolve) => {
 			resolveExit = resolve;
 		});
-		const managed: ManagedProcess = {
-			appId: id,
-			operationId,
-			pid,
-			pty: ptyProcess,
-			exited: exitResult.then(() => undefined),
-			rootExited: false,
-			knownPids: new Set([pid]),
-		};
 		const socketOutput = new RateLimitedSocketOutput((content) => {
 			io.to(id).emit(logs, { type: "log", content });
 		});
@@ -629,12 +837,33 @@ export const executeCommand = async (
 			options?.onOutput?.(clean);
 			socketOutput.write(clean);
 		});
+		const managedRef: { current?: ManagedProcess } = {};
+		let rootExited = false;
 		const exitDisposable = ptyProcess.onExit(({ exitCode }) => {
-			managed.rootExited = true;
+			rootExited = true;
 			resolveExit({ exitCode: exitCode ?? 0 });
-			if (!managed.terminating) unregisterProcess(id, pid);
+			if (managedRef.current && !managedRef.current.terminating) {
+				managedRef.current.rootExited = true;
+				void releaseOwnershipWhenSessionExits(managedRef.current);
+			}
 		});
+		const sessionToken = await getUnixSessionToken(pid);
+		const managed: ManagedProcess = {
+			appId: id,
+			operationId,
+			pid,
+			pty: ptyProcess,
+			exited: exitResult.then(() => undefined),
+			rootExited,
+			knownPids: new Set([pid]),
+			// node-pty uses forkpty/POSIX_SPAWN_SETSID on Unix, making the
+			// returned PID the leader of a new process group and session.
+			processGroupIds: new Set(isWindows ? [] : [pid]),
+			sessionToken,
+		};
+		managedRef.current = managed;
 		trackProcess(managed);
+		if (rootExited) void releaseOwnershipWhenSessionExits(managed);
 
 		if (!commandSpec.file && shellCommand) {
 			if (isWindows) {

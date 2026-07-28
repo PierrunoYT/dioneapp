@@ -40,6 +40,7 @@
     "check-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --offline",
     "test-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --self-test",
     "attest-deployment": "tsx scripts/check-deployment-readiness.ts --release --live",
+    "check-process-ownership": "tsx scripts/check-process-ownership.ts",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run check-licenses && npm run typecheck && electron-vite build",
