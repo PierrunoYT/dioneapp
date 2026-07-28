@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { checkDependencies } from "@/server/scripts/dependencies/dependencies";
-import executeInstallation from "@/server/scripts/execute";
+import executeInstallation, {
+	MissingDependenciesError,
+} from "@/server/scripts/execute";
 import { checkSystem } from "@/server/scripts/system";
 import { consumeLocalApproval } from "@/server/scripts/trust";
 import {
@@ -137,7 +139,7 @@ export async function loadLocalScript(
 		io.to(id).emit("notSupported", {
 			reasons: systemCheck.reasons,
 		});
-		return;
+		throw new Error("System requirements not met");
 	}
 	log(io, id, "All system requirements are met.");
 	// check deps
@@ -151,10 +153,7 @@ export async function loadLocalScript(
 		});
 		// checking dependencies finished, now executing installation
 		io.to(id).emit("enableStop"); // this will enable the stop button
-		await executeInstallation(dioneConfigPath, io, id).catch((error) => {
-			console.error(`Unhandled error: ${error.message}`);
-			process.exit(1);
-		});
+		await executeInstallation(dioneConfigPath, io, id);
 	} else if (result.error) {
 		io.to(id).emit("installUpdate", {
 			type: "log",
@@ -166,6 +165,7 @@ export async function loadLocalScript(
 			content: "Error detected",
 		});
 		logger.error(`Error downloading script: ${result.error}`);
+		throw new Error(`Invalid dependency configuration: ${result.error}`);
 	} else {
 		io.to(id).emit("missingDeps", result.missing);
 		const depsList = result.missing.map((dep) => dep.name).join(", ");
@@ -179,6 +179,7 @@ export async function loadLocalScript(
 			content: "Installing dependencies...",
 		});
 		logger.warn(`Installing dependencies: ${depsList}`);
+		throw new MissingDependenciesError(depsList);
 	}
 }
 

@@ -19,6 +19,14 @@ import {
 import type { Server } from "socket.io";
 import { createVirtualEnvCommands } from "./dependencies/env-utils";
 import { addValue } from "./dependencies/environment";
+
+export class MissingDependenciesError extends Error {
+	constructor(dependencies: string) {
+		super(`Missing dependencies: ${dependencies}`);
+		this.name = "MissingDependenciesError";
+	}
+}
+
 async function patchNetworkAccess(configDir: string) {
 	try {
 		const files = await fs.promises.readdir(configDir, { withFileTypes: true });
@@ -195,11 +203,6 @@ export default async function executeInstallation(
 						id,
 						`INFO: Installation cancelled with run id ${runId} - stopping remaining steps`,
 					);
-					emitRunProgress(io, id, {
-						type: "run_finished",
-						runId,
-						success: false,
-					});
 					return { cancelled: true };
 				}
 
@@ -229,13 +232,16 @@ export default async function executeInstallation(
 
 				if (results.some((res) => res?.cancelled)) {
 					logger.info("Installation loop stopped due to cancellation.");
-					return; // stop
+					throw new Error("Installation cancelled");
 				}
 			}
 		}
 		// await any remaining parallel steps at the end
 		if (pendingPromises.length > 0) {
-			await Promise.all(pendingPromises);
+			const results = await Promise.all(pendingPromises);
+			if (results.some((result) => result?.cancelled)) {
+				throw new Error("Installation cancelled");
+			}
 		}
 
 		// emit log to reload frontend after all actions are executed
@@ -252,10 +258,13 @@ export default async function executeInstallation(
 			emitRunProgress(io, id, { type: "run_finished", runId, success: true });
 		}
 		// stop the app just in case
-		await stopActiveProcess(io, id);
+		await stopActiveProcess(io, id).catch((error) => {
+			logger.warn(`Post-install process cleanup failed: ${error}`);
+		});
 	} catch (error) {
 		logger.error(`Failed in step: ${error}`);
 		emitRunProgress(io, id, { type: "run_finished", runId, success: false });
+		throw error;
 	}
 }
 
@@ -299,7 +308,7 @@ export async function executeStartup(
 			content: "Error detected",
 		});
 
-		return;
+		throw new Error(`Invalid dependency configuration: ${result.error}`);
 	} else {
 		io.to(id).emit("missingDeps", result.missing);
 		const depsList = result.missing.map((dep) => dep.name).join(", ");
@@ -310,7 +319,7 @@ export async function executeStartup(
 			content: "Installing dependencies...",
 		});
 
-		return;
+		throw new MissingDependenciesError(depsList);
 	}
 
 	let selectedStart: any;
@@ -320,7 +329,7 @@ export async function executeStartup(
 		);
 		if (!selectedStart) {
 			log(io, id, `ERROR: Start option "${startName}" not found`);
-			return;
+			throw new Error(`Start option "${startName}" not found`);
 		}
 	} else {
 		// if not specified, use the default start (first element)
@@ -328,7 +337,7 @@ export async function executeStartup(
 			config.start && config.start.length > 0 ? config.start[0] : null;
 		if (!selectedStart) {
 			log(io, id, "INFO: No start options found");
-			return;
+			throw new Error("No start options found");
 		}
 	}
 
@@ -353,6 +362,9 @@ export async function executeStartup(
 		: selectedStart.commands
 			? [{ name: selectedStart.name, commands: selectedStart.commands }]
 			: [];
+	if (startStepsRaw.length === 0) {
+		throw new Error("Selected start option has no commands");
+	}
 	const hasWaitPort = Boolean(selectedStart.catch);
 	const runId = generateRunId(`${id}:start`);
 	const stepsDef = [
@@ -526,12 +538,7 @@ export async function executeStartup(
 					id,
 					`INFO: Startup cancelled with run id ${response.id || "no id"} - stopping remaining steps`,
 				);
-				emitRunProgress(io, id, {
-					type: "run_finished",
-					runId,
-					success: false,
-				});
-				return { cancelled: true };
+				throw new Error("Startup cancelled");
 			}
 
 			if (response?.error) {

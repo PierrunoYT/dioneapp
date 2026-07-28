@@ -4,7 +4,7 @@ import type { Script } from "@/components/features/home/feed/types";
 import UploadModal from "@/components/features/modals/upload-script";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
-import { apiFetch, apiJson } from "@/utils/api";
+import { apiJson, apiRequest } from "@/utils/api";
 import { useToast } from "@/utils/use-toast";
 import { useEffect, useState } from "react";
 
@@ -45,11 +45,19 @@ export default function LocalScripts() {
 			fixed: "true",
 		});
 
-		await apiFetch(`/local/delete/${encodeURIComponent(name)}`, {
-			method: "DELETE",
-		});
-		fetchScripts();
-		handleReloadQuickLaunch();
+		try {
+			await apiRequest(`/local/delete/${encodeURIComponent(name)}`, {
+				method: "DELETE",
+			});
+		} catch (error) {
+			addToast({
+				variant: "error",
+				children: String(error),
+			});
+		} finally {
+			await fetchScripts();
+			await handleReloadQuickLaunch();
+		}
 	};
 
 	return (

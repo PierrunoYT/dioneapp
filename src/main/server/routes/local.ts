@@ -55,12 +55,15 @@ export function createLocalScriptsRouter(io: Server) {
 				});
 			}
 			await loadLocalScript(name, io, req.body.approvalNonce);
-			res.send("Script installed successfully.");
+			res.status(200).json({ success: true });
 		} catch (error: any) {
 			logger.error(
 				`Error handling install request: [ (${error.code || "No code"}) ${error.message || "No details"} ]`,
 			);
-			res.status(500).send("An error occurred while processing your request.");
+			res.status(500).json({
+				success: false,
+				error: error?.message || "Local installation failed",
+			});
 		}
 	});
 

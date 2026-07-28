@@ -29,7 +29,7 @@ import {
 } from "@/components/features/editor/utils/utils";
 import { IconButton } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
-import { apiFetch } from "@/utils/api";
+import { apiJson, apiRequest } from "@/utils/api";
 import { FilePlus, FolderPlus, Loader2 } from "lucide-react";
 import {
 	type KeyboardEvent,
@@ -187,10 +187,8 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				if (data?.id) {
 					params.set("appId", data.id);
 				}
-				const payload = await apiFetch(
+				const payload = await apiJson<{ entries: FileEntryResponse[] }>(
 					`/files/list/${encodeURIComponent(data.name)}${params.toString() ? `?${params.toString()}` : ""}`,
-				).then(
-					(res) => res.json() as Promise<{ entries: FileEntryResponse[] }>,
 				);
 				if (!isCurrent()) return;
 				setWorkspaceError(null);
@@ -320,10 +318,10 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			if (data?.id) {
 				params.set("appId", data.id);
 			}
-			const payload = await apiFetch(
+			const payload = await apiJson<{ rootPath: string }>(
 				`/files/root/${encodeURIComponent(data.name)}${params.toString() ? `?${params.toString()}` : ""}`,
 				{ signal: controller.signal },
-			).then((res) => res.json() as Promise<{ rootPath: string }>);
+			);
 			if (!isCurrent()) return;
 			setRootPath(payload.rootPath);
 			setTree([
@@ -461,10 +459,10 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				if (data?.id) {
 					params.set("appId", data.id);
 				}
-				const payload = await apiFetch(
+				const payload = await apiJson<FileContentResponse>(
 					`/files/content/${encodeURIComponent(data.name)}?${params.toString()}`,
 					{ signal: request.controller.signal },
-				).then((res) => res.json() as Promise<FileContentResponse>);
+				);
 				if (!isCurrent()) return;
 				if (payload.encoding === "base64") {
 					const extensionKey = getExtensionKey(node.name);
@@ -568,7 +566,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			if (data?.id) {
 				params.set("appId", data.id);
 			}
-			await apiFetch(
+			await apiRequest(
 				`/files/save/${encodeURIComponent(data.name)}${params.toString() ? `?${params.toString()}` : ""}`,
 				{
 					method: "POST",
@@ -689,7 +687,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			try {
 				const params = new URLSearchParams();
 				if (data?.id) params.set("appId", data.id);
-				await apiFetch(
+				await apiRequest(
 					`/files/delete/${encodeURIComponent(data.name)}${params.toString() ? `?${params.toString()}` : ""}`,
 					{
 						method: "POST",
@@ -832,7 +830,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 			}
 
 			if (entryDialog.mode === "create") {
-				const payload = await apiFetch(
+				const payload = await apiJson<{ entry: FileEntryResponse }>(
 					`/files/create/${encodeURIComponent(workspaceName)}${params.toString() ? `?${params.toString()}` : ""}`,
 					{
 						method: "POST",
@@ -843,7 +841,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 							type: entryDialog.entryType,
 						}),
 					},
-				).then((res) => res.json() as Promise<{ entry: FileEntryResponse }>);
+				);
 				await loadDirectory(entryDialog.parentPath);
 				const createdPath = payload.entry.relativePath;
 				setExpandedPaths((prev) => {
@@ -872,19 +870,16 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 				return;
 			}
 
-			const payload = await apiFetch(
+			const payload = await apiJson<{
+				entry: FileEntryResponse;
+				previousPath: string;
+			}>(
 				`/files/rename/${encodeURIComponent(workspaceName)}${params.toString() ? `?${params.toString()}` : ""}`,
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ path: entryDialog.targetPath, name: trimmed }),
 				},
-			).then(
-				(res) =>
-					res.json() as Promise<{
-						entry: FileEntryResponse;
-						previousPath: string;
-					}>,
 			);
 			const newPath = payload.entry.relativePath;
 			const parentPath = getParentPath(newPath);

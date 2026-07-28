@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import type { IncomingMessage } from "node:http";
 import https from "node:https";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { checkDependencies } from "@/server/scripts/dependencies/dependencies";
-import executeInstallation from "@/server/scripts/execute";
+import executeInstallation, {
+	MissingDependenciesError,
+} from "@/server/scripts/execute";
 import { checkSystem } from "@/server/scripts/system";
 import { verifyAndRecordRemoteManifest } from "@/server/scripts/trust";
 import {
@@ -32,9 +35,14 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 				},
 			},
 		);
+		if (!response.ok) {
+			throw new Error(
+				`Script catalog request failed with status ${response.status}`,
+			);
+		}
 		const json = await response.json();
 		const data = json[0];
-		if (!data || data.length === 0) {
+		if (!data) {
 			io.to(id).emit("installUpdate", {
 				type: "log",
 				content: "ERROR: Script not found\n",
@@ -44,7 +52,7 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 				status: "error",
 				content: "Error detected",
 			});
-			return null;
+			throw new Error("Script not found");
 		}
 
 		const appId = validateAppId(data.name);
@@ -59,48 +67,35 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 			sourceUrl: script_url,
 			commit,
 		};
-		try {
-			// create app stuff
-			const existing = await fs.promises.lstat(saveDirectory).catch(() => null);
-			if (!existing) await fs.promises.mkdir(saveDirectory);
-			else
-				saveDirectory = await resolveCanonicalAppPath(appId, {
-					mustExist: true,
-				});
-			const outputFilePath = path.join(saveDirectory, "dione.json");
-			// download dione.json
-			await downloadFile(
-				script_url,
-				outputFilePath,
-				io,
-				id,
-				trustMetadata,
-				force,
-			);
-		} catch (error) {
+		// create app stuff
+		const existing = await fs.promises.lstat(saveDirectory).catch(() => null);
+		if (!existing) await fs.promises.mkdir(saveDirectory);
+		else
+			saveDirectory = await resolveCanonicalAppPath(appId, {
+				mustExist: true,
+			});
+		const outputFilePath = path.join(saveDirectory, "dione.json");
+		// download dione.json
+		await downloadFile(
+			script_url,
+			outputFilePath,
+			io,
+			id,
+			trustMetadata,
+			force,
+		);
+	} catch (error) {
+		if (!(error instanceof MissingDependenciesError)) {
 			io.to(id).emit("installUpdate", {
 				type: "log",
-				content: `ERROR: Error creating apps directory: ${error}\n`,
+				content: `ERROR: ${error}\n`,
 			});
 			io.to(id).emit("installUpdate", {
 				type: "status",
 				status: "error",
 				content: "Error detected",
 			});
-			logger.error("Error creating apps directory:", error);
-			throw error;
 		}
-		return undefined;
-	} catch (error) {
-		io.to(id).emit("installUpdate", {
-			type: "log",
-			content: `ERROR: ${error}\n`,
-		});
-		io.to(id).emit("installUpdate", {
-			type: "status",
-			status: "error",
-			content: "Error detected",
-		});
 		logger.error(`Error downloading script: ${error}`);
 		throw error;
 	}
@@ -152,7 +147,7 @@ export function extractInfo(url: string): {
 	return { repo };
 }
 
-export function downloadFile(
+export async function downloadFile(
 	GITHUB_URL: string,
 	FILE_PATH: string,
 	io: Server,
@@ -169,10 +164,8 @@ export function downloadFile(
 	const repoInfo = extractInfo(GITHUB_URL);
 	const { commit } = trustMetadata;
 	if (!/^[a-f0-9]{40}$/i.test(commit)) {
-		return Promise.reject(
-			new Error(
-				"Remote install refused: publisher metadata must pin an immutable 40-character git commit",
-			),
+		throw new Error(
+			"Remote install refused: publisher metadata must pin an immutable 40-character git commit",
 		);
 	}
 
@@ -209,7 +202,7 @@ export function downloadFile(
 				content: "Error detected",
 			});
 			logger.error(`Invalid GitHub URL: ${error.message}`);
-			return Promise.reject(error);
+			throw error;
 		}
 	}
 
@@ -222,136 +215,110 @@ export function downloadFile(
 		path.dirname(FILE_PATH),
 		`.dione.json.${randomUUID()}.download`,
 	);
-	const file = fs.createWriteStream(temporaryPath, {
-		flags: "wx",
-		mode: 0o600,
+	const response = await new Promise<IncomingMessage>((resolve, reject) => {
+		const request = https.get(url, resolve);
+		request.once("error", reject);
 	});
 
-	return new Promise<void>((resolve, reject) => {
-		const request = https.get(url, async (response) => {
-			if (response.statusCode === 200) {
-				try {
-					await pipeline(response, file);
-					await verifyAndRecordRemoteManifest(temporaryPath, trustMetadata);
-					const destination = await fs.promises
-						.lstat(FILE_PATH)
-						.catch(() => null);
-					if (destination?.isSymbolicLink()) {
-						throw new Error("Manifest destination symlink rejected");
-					}
-					if (destination) await fs.promises.rm(FILE_PATH);
-					await fs.promises.rename(temporaryPath, FILE_PATH);
-					io.to(id).emit("installUpdate", {
-						type: "log",
-						content: "Script downloaded successfully.\n",
-					});
-					io.to(id).emit("installUpdate", {
-						type: "status",
-						status: "success",
-						content: "Script downloaded",
-					});
+	if (response.statusCode !== 200) {
+		response.resume();
+		throw new Error(
+			`Error downloading script, status code: ${response.statusCode ?? "unknown"}`,
+		);
+	}
 
-					const systemCheck =
-						force === true
-							? { success: true, reasons: [] }
-							: await checkSystem(FILE_PATH);
-					if (systemCheck.success === false) {
-						io.to(id).emit("installUpdate", {
-							type: "log",
-							content: "System requirements not met.\n",
-						});
-						io.to(id).emit("installUpdate", {
-							type: "status",
-							status: "error",
-							content: "Error detected",
-						});
-						io.to(id).emit("notSupported", {
-							reasons: systemCheck.reasons,
-						});
-						resolve();
-						return;
-					}
-
-					io.to(id).emit("installUpdate", {
-						type: "log",
-						content: "All system requirements are met.\n",
-					});
-
-					const result = await checkDependencies(FILE_PATH);
-					logger.info(`RESULT: ${JSON.stringify(result)}`);
-					if (result.success) {
-						io.to(id).emit("installUpdate", {
-							type: "log",
-							content: "All required dependencies are installed.\n",
-						});
-						io.to(id).emit("installUpdate", {
-							type: "status",
-							status: "success",
-							content: "Dependencies installed",
-						});
-						io.to(id).emit("enableStop");
-						await executeInstallation(FILE_PATH, io, id);
-					} else if (result.error) {
-						io.to(id).emit("installUpdate", {
-							type: "log",
-							content:
-								"We have not been able to read the configuration file due to an error, check that Dione.json is well formulated as JSON.\n",
-						});
-						io.to(id).emit("installUpdate", {
-							type: "status",
-							status: "error",
-							content: "Error detected",
-						});
-					} else {
-						io.to(id).emit("missingDeps", result.missing);
-						const depsList = result.missing.map((dep) => dep.name).join(", ");
-						io.to(id).emit("installUpdate", {
-							type: "log",
-							content: `Installing dependencies: ${depsList}\n`,
-						});
-						io.to(id).emit("installUpdate", {
-							type: "status",
-							status: "pending",
-							content: "Installing dependencies...",
-						});
-					}
-					resolve();
-				} catch (error) {
-					await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
-					reject(error);
-				}
-			} else {
-				response.resume();
-				file.destroy();
-				await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
-				logger.error(`Error downloading script: ${response.statusCode}`);
-				io.to(id).emit("installUpdate", {
-					type: "log",
-					content: `ERROR: Error downloading script, status code: ${response.statusCode}\n`,
-				});
-				io.to(id).emit("installUpdate", {
-					type: "status",
-					status: "error",
-					content: "Error detected",
-				});
-				resolve();
-			}
+	try {
+		const file = fs.createWriteStream(temporaryPath, {
+			flags: "wx",
+			mode: 0o600,
 		});
+		await pipeline(response, file);
+		await verifyAndRecordRemoteManifest(temporaryPath, trustMetadata);
+		const destination = await fs.promises.lstat(FILE_PATH).catch(() => null);
+		if (destination?.isSymbolicLink()) {
+			throw new Error("Manifest destination symlink rejected");
+		}
+		await fs.promises.rename(temporaryPath, FILE_PATH);
+	} catch (error) {
+		await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
+		throw error;
+	}
 
-		request.on("error", async (error) => {
-			file.destroy();
-			await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
-			logger.error("Error in request:", error);
-			io.to(id).emit("installUpdate", {
-				type: "log",
-				content: `ERROR: Error in request: ${error.message}\n`,
-			});
-			io.to(id).emit("installUpdate", {
-				type: "status",
-				status: "error",
-				content: "Error detected",
-			});
-			resolve();
-		});
+	io.to(id).emit("installUpdate", {
+		type: "log",
+		content: "Script downloaded successfully.\n",
 	});
+	io.to(id).emit("installUpdate", {
+		type: "status",
+		status: "success",
+		content: "Script downloaded",
+	});
+
+	const systemCheck =
+		force === true
+			? { success: true, reasons: [] }
+			: await checkSystem(FILE_PATH);
+	if (systemCheck.success === false) {
+		io.to(id).emit("installUpdate", {
+			type: "log",
+			content: "System requirements not met.\n",
+		});
+		io.to(id).emit("installUpdate", {
+			type: "status",
+			status: "error",
+			content: "Error detected",
+		});
+		io.to(id).emit("notSupported", {
+			reasons: systemCheck.reasons,
+		});
+		throw new Error("System requirements not met");
+	}
+
+	io.to(id).emit("installUpdate", {
+		type: "log",
+		content: "All system requirements are met.\n",
+	});
+
+	const result = await checkDependencies(FILE_PATH);
+	logger.info(`RESULT: ${JSON.stringify(result)}`);
+	if (result.success) {
+		io.to(id).emit("installUpdate", {
+			type: "log",
+			content: "All required dependencies are installed.\n",
+		});
+		io.to(id).emit("installUpdate", {
+			type: "status",
+			status: "success",
+			content: "Dependencies installed",
+		});
+		io.to(id).emit("enableStop");
+		await executeInstallation(FILE_PATH, io, id);
+		return;
+	}
+	if (result.error) {
+		io.to(id).emit("installUpdate", {
+			type: "log",
+			content:
+				"We have not been able to read the configuration file due to an error, check that Dione.json is well formulated as JSON.\n",
+		});
+		io.to(id).emit("installUpdate", {
+			type: "status",
+			status: "error",
+			content: "Error detected",
+		});
+		throw new Error(`Invalid dependency configuration: ${result.error}`);
+	}
+
+	io.to(id).emit("missingDeps", result.missing);
+	const depsList = result.missing.map((dep) => dep.name).join(", ");
+	io.to(id).emit("installUpdate", {
+		type: "log",
+		content: `Installing dependencies: ${depsList}\n`,
+	});
+	io.to(id).emit("installUpdate", {
+		type: "status",
+		status: "pending",
+		content: "Installing dependencies...",
+	});
+	throw new MissingDependenciesError(depsList);
 }

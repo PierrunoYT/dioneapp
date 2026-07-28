@@ -2,11 +2,12 @@ import { setupSocket } from "@/components/contexts/scripts/setup-socket";
 import type {
 	DependencyDiagnosticsState,
 	ProgressState,
+	ScriptSocketConnection,
 	ScriptsContextType,
 	ScriptsLogContextType,
 } from "@/components/contexts/types/context-types";
 import { useTranslation } from "@/translations/translation-context";
-import { apiFetch, getBackendPort } from "@/utils/api";
+import { apiFetch, apiRequest, getBackendPort } from "@/utils/api";
 import { isArray, readStoredJson } from "@/utils/local-storage";
 import { useToast } from "@/utils/use-toast";
 import type { Terminal } from "@xterm/xterm";
@@ -24,17 +25,52 @@ import type { Socket } from "socket.io-client";
 
 const AppContext = createContext<ScriptsContextType | undefined>(undefined);
 const LogContext = createContext<ScriptsLogContextType | undefined>(undefined);
+const PREVIEW_POLL_INTERVAL_MS = 3_000;
+const PREVIEW_POLL_DEADLINE_MS = 60_000;
+
+const waitForPreviewPoll = (delay: number, signal: AbortSignal) =>
+	new Promise<void>((resolve, reject) => {
+		if (signal.aborted) {
+			reject(signal.reason ?? new Error("Preview polling aborted"));
+			return;
+		}
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", handleAbort);
+			resolve();
+		}, delay);
+		const handleAbort = () => {
+			clearTimeout(timeout);
+			reject(signal.reason ?? new Error("Preview polling aborted"));
+		};
+		signal.addEventListener("abort", handleAbort, { once: true });
+	});
+
+const isLocalAvailable = async (
+	port: number,
+	signal: AbortSignal,
+): Promise<boolean> => {
+	try {
+		const response = await fetch(`http://localhost:${port}`, { signal });
+		if (!response.ok) return false;
+		const text = await response.text();
+		return text.toLowerCase().includes("<html");
+	} catch (error) {
+		if (signal.aborted) throw error;
+		return false;
+	}
+};
 
 export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	const { t } = useTranslation();
 	// socket ref
 	const [sockets, setSockets] = useState<
-		Record<string, { socket: Socket; isLocal?: boolean }>
-	>({}); // multiple sockets
-	const socketsRef = useRef<{
-		[key: string]: { socket: Socket; isLocal?: boolean };
-	}>({});
-	const connectingRef = useRef<Record<string, Promise<void> | null>>({});
+		Record<string, ScriptSocketConnection>
+	>({});
+	const socketsRef = useRef<Record<string, ScriptSocketConnection>>({});
+	const connectingRef = useRef<
+		Record<string, { generation: number; promise: Promise<void> } | undefined>
+	>({});
+	const socketGenerationRef = useRef<Record<string, number>>({});
 	const socketRef = useRef<any>(null);
 	const terminalStatesRef = useRef<Record<string, Terminal>>({});
 	const [exitRef, setExitRef] = useState<boolean>(false);
@@ -51,30 +87,33 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	const [shouldCatch, setShouldCatch] = useState<Record<string, boolean>>({});
 	// toast stuff
 	const { addToast } = useToast();
-	const showToast = (
-		variant: "default" | "success" | "error" | "warning",
-		message: string,
-		fixed?: "true" | "false",
-		button?: boolean,
-		buttonText?: string,
-		buttonAction?: () => void,
-		removeAfter?: number,
-	) => {
-		addToast({
-			variant,
-			children: message,
-			fixed,
-			button,
-			buttonText,
-			buttonAction,
-			removeAfter,
-		});
-	};
+	const showToast = useCallback(
+		(
+			variant: "default" | "success" | "error" | "warning",
+			message: string,
+			fixed?: "true" | "false",
+			button?: boolean,
+			buttonText?: string,
+			buttonAction?: () => void,
+			removeAfter?: number,
+		) => {
+			addToast({
+				variant,
+				children: message,
+				fixed,
+				button,
+				buttonText,
+				buttonAction,
+				removeAfter,
+			});
+		},
+		[addToast],
+	);
 	// navegation stuff
 	const navigate = useNavigate();
 	// errors stuff
 	const [error, setError] = useState<boolean>(false);
-	const errorRef = useRef(false);
+	const errorRef = useRef<Record<string, boolean>>({});
 	useEffect(() => {
 		if (error === true) {
 			showToast(
@@ -85,7 +124,9 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 		}
 	}, [error]);
 	// missing dependencies stuff
-	const [missingDependencies, setMissingDependencies] = useState<any>();
+	const [missingDependencies, setMissingDependencies] = useState<
+		Record<string, any[]>
+	>({});
 	const [dependencyDiagnostics, setDependencyDiagnostics] =
 		useState<DependencyDiagnosticsState>({});
 	// iframe stuff
@@ -96,6 +137,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	>({});
 	// data stuff
 	const [data, setData] = useState<any | undefined>(undefined);
+	const appDataRef = useRef<Record<string, any>>({});
 	// show
 	const [show, setShow] = useState<Record<string, string>>({});
 	// sidebar
@@ -124,6 +166,22 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	const [currentCommand, setCurrentCommand] = useState<Record<string, string>>(
 		{},
 	);
+	const shouldCatchRef = useRef(shouldCatch);
+	const previewPollsRef = useRef<
+		Record<
+			string,
+			{ generation: number; controller: AbortController } | undefined
+		>
+	>({});
+	const previewGenerationRef = useRef<Record<string, number>>({});
+
+	useEffect(() => {
+		shouldCatchRef.current = shouldCatch;
+	}, [shouldCatch]);
+
+	useEffect(() => {
+		if (data?.id) appDataRef.current[data.id] = data;
+	}, [data]);
 
 	useEffect(() => {
 		setData(null);
@@ -241,51 +299,74 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 		}
 	}, [localApps, removedApps, t]);
 
-	const isLocalAvailable = async (port: number): Promise<boolean> => {
-		try {
-			const response = await fetch(`http://localhost:${port}`);
-			if (!response.ok) return false;
+	const cancelPreviewPolling = useCallback((appId: string) => {
+		previewGenerationRef.current[appId] =
+			(previewGenerationRef.current[appId] ?? 0) + 1;
+		const operation = previewPollsRef.current[appId];
+		operation?.controller.abort();
+		delete previewPollsRef.current[appId];
+	}, []);
 
-			const text = await response.text();
-
-			// check if really its loaded
-			return text.includes("<html");
-		} catch {
-			return false;
-		}
-	};
-
-	const stopCheckingRef = useRef(true);
-	const isLoadingIframeRef = useRef(false);
 	const loadIframe = useCallback(
-		async (localPort: number) => {
-			if (stopCheckingRef.current || isLoadingIframeRef.current) return;
-
-			stopCheckingRef.current = false;
-
-			let isAvailable = false;
-			while (!isAvailable) {
-				isAvailable = await isLocalAvailable(localPort);
-				if (!isAvailable) {
-					await new Promise((resolve) => setTimeout(resolve, 3000));
-				}
+		async (appId: string, localPort: number) => {
+			if (
+				!appId ||
+				!Number.isInteger(localPort) ||
+				localPort < 1 ||
+				localPort > 65_535 ||
+				previewPollsRef.current[appId]
+			) {
+				return;
 			}
-			if (isAvailable) {
-				stopCheckingRef.current = true;
-				isLoadingIframeRef.current = true;
+
+			const generation = (previewGenerationRef.current[appId] ?? 0) + 1;
+			previewGenerationRef.current[appId] = generation;
+			const controller = new AbortController();
+			const operation = { generation, controller };
+			previewPollsRef.current[appId] = operation;
+			const ownsOperation = () =>
+				previewPollsRef.current[appId] === operation &&
+				previewGenerationRef.current[appId] === generation;
+			const deadlineTimer = setTimeout(() => {
+				if (ownsOperation()) {
+					controller.abort(new Error("Preview polling deadline exceeded"));
+				}
+			}, PREVIEW_POLL_DEADLINE_MS);
+
+			setIframeAvailable((prev) => ({ ...prev, [appId]: false }));
+			try {
+				let available = false;
+				while (!available && !controller.signal.aborted) {
+					available = await isLocalAvailable(localPort, controller.signal);
+					if (!available) {
+						await waitForPreviewPoll(
+							PREVIEW_POLL_INTERVAL_MS,
+							controller.signal,
+						);
+					}
+				}
+				if (!available || !ownsOperation()) return;
+
+				const appData = appDataRef.current[appId];
+				const appName = appData?.name || "Script";
 				setIframeSrc((prev) => ({
 					...prev,
-					[data?.id]: `http://localhost:${localPort}`,
+					[appId]: `http://localhost:${localPort}`,
 				}));
-				setShow({ [data?.id]: "iframe" });
-				setIframeAvailable((prev) => ({ ...prev, [data?.id]: true }));
-				showToast("default", `${data.name || "Script"} has opened a preview.`);
-				window.dione.notify("Preview...", `${data.name} has opened a preview.`);
+				setShow((prev) => ({ ...prev, [appId]: "iframe" }));
+				setIframeAvailable((prev) => ({ ...prev, [appId]: true }));
+				showToast("default", `${appName} has opened a preview.`);
+				window.dione.notify("Preview...", `${appName} has opened a preview.`);
+			} catch (error) {
+				if (ownsOperation() && !controller.signal.aborted) {
+					console.warn(`Preview polling failed for ${appId}:`, error);
+				}
+			} finally {
+				clearTimeout(deadlineTimer);
+				if (ownsOperation()) delete previewPollsRef.current[appId];
 			}
-
-			isLoadingIframeRef.current = false;
 		},
-		[data],
+		[showToast],
 	);
 
 	// multiple logs
@@ -328,65 +409,46 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 			.map((log) => log.replace(ansiRegex, ""));
 	}, [logs]);
 
+	const getAppData = useCallback(
+		(appId: string) => appDataRef.current[appId],
+		[],
+	);
+
+	const handleSocketDisconnect = useCallback(
+		(appId: string, socket: Socket) => {
+			const connection = socketsRef.current[appId];
+			if (!connection || connection.socket !== socket) return;
+			connection.dispose();
+			delete socketsRef.current[appId];
+			setSockets({ ...socketsRef.current });
+			cancelPreviewPolling(appId);
+			setActiveApps((prev) => prev.filter((app) => app.appId !== appId));
+			delete errorRef.current[appId];
+		},
+		[cancelPreviewPolling],
+	);
+
 	const connectApp = useCallback(
 		async (appId: string, isLocal?: boolean) => {
-			// reuse existing connection attempt
-			if (connectingRef.current[appId]) {
-				return connectingRef.current[appId];
-			}
+			const connecting = connectingRef.current[appId];
+			if (connecting) return connecting.promise;
+
+			errorRef.current[appId] = false;
+			const generation = (socketGenerationRef.current[appId] ?? 0) + 1;
+			socketGenerationRef.current[appId] = generation;
 
 			const connectPromise = (async () => {
 				const existing = socketsRef.current[appId];
-				if (existing?.socket) {
-					try {
-						// already fully connected -> nothing to do
-						if (existing.socket.connected) {
-							return;
-						}
-						// try reconnecting existing socket
-						if (typeof existing.socket.connect === "function") {
-							console.log(`Reconnecting socket for ${appId}...`);
-							existing.socket.connect();
-							setSockets({ ...socketsRef.current });
-							// wait for connection or timeout
-							await new Promise<void>((resolve) => {
-								const to = setTimeout(() => {
-									console.warn(
-										`Timeout waiting for socket ${appId} to connect`,
-									);
-									resolve();
-								}, 2000);
-								existing.socket.once("connect", () => {
-									clearTimeout(to);
-									resolve();
-								});
-							});
-							if (existing.socket.connected) return;
-						}
-					} catch (err) {
-						console.warn(
-							"Reconnect attempt failed, will recreate socket:",
-							err,
-						);
-					}
-
-					// cleanup dead socket
-					try {
-						if (
-							existing.socket &&
-							typeof existing.socket.disconnect === "function"
-						) {
-							existing.socket.disconnect();
-						}
-					} catch (e) {
-						/* ignore */
-					}
+				if (existing) {
+					if (existing.socket.connected) return;
+					existing.dispose();
 					delete socketsRef.current[appId];
 					setSockets({ ...socketsRef.current });
 				}
 
 				const port = await getBackendPort();
-				const newSocket = setupSocket({
+				if (socketGenerationRef.current[appId] !== generation) return;
+				const connection = setupSocket({
 					appId,
 					addLog,
 					port,
@@ -395,59 +457,90 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 					setIframeAvailable,
 					setCatchPort,
 					loadIframe,
-					setIframeSrc,
 					errorRef,
 					showToast,
-					stopCheckingRef,
 					setStatusLog,
 					setDeleteLogs,
-					data,
-					socketsRef,
+					getAppData,
+					shouldCatchRef,
+					onDisconnect: handleSocketDisconnect,
 					setAppFinished,
 					setNotSupported,
 					setWasJustInstalled,
 					setProgress,
 					setShouldCatch,
-					shouldCatch,
 					setCurrentCommand,
 				});
+				if (socketGenerationRef.current[appId] !== generation) {
+					connection.dispose();
+					return;
+				}
 				socketsRef.current[appId] = {
-					socket: newSocket,
+					...connection,
 					isLocal,
 				};
 				setSockets({ ...socketsRef.current });
 			})();
 
-			connectingRef.current[appId] = connectPromise;
+			connectingRef.current[appId] = { generation, promise: connectPromise };
 			try {
 				await connectPromise;
 			} finally {
-				connectingRef.current[appId] = null;
+				if (connectingRef.current[appId]?.generation === generation) {
+					delete connectingRef.current[appId];
+				}
 			}
 		},
-		[addLog, loadIframe, data, shouldCatch, setStatusLog],
+		[addLog, getAppData, handleSocketDisconnect, loadIframe, showToast],
 	);
 
-	const disconnectApp = useCallback((appId: string) => {
-		const socketToClose = socketsRef.current[appId];
-		if (!socketToClose) return;
+	const disconnectApp = useCallback(
+		(appId: string) => {
+			socketGenerationRef.current[appId] =
+				(socketGenerationRef.current[appId] ?? 0) + 1;
+			delete connectingRef.current[appId];
+			cancelPreviewPolling(appId);
+			const socketToClose = socketsRef.current[appId];
+			if (socketToClose) {
+				socketToClose.dispose();
+				delete socketsRef.current[appId];
+				setSockets({ ...socketsRef.current });
+			}
+			setIframeAvailable((prev) => ({ ...prev, [appId]: false }));
+			setIframeSrc((prev) => {
+				if (!prev[appId]) return prev;
+				const next = { ...prev };
+				delete next[appId];
+				return next;
+			});
 
-		socketToClose.socket.disconnect();
-		delete socketsRef.current[appId];
-		setSockets({ ...socketsRef.current });
+			setDependencyDiagnostics((prev) => {
+				if (!prev[appId]) return prev;
+				const next = { ...prev };
+				delete next[appId];
+				return next;
+			});
 
-		setDependencyDiagnostics((prev) => {
-			if (!prev[appId]) return prev;
-			const next = { ...prev };
-			delete next[appId];
-			return next;
-		});
+			setActiveApps((prev) => prev.filter((app) => app.appId !== appId));
+			delete errorRef.current[appId];
+		},
+		[cancelPreviewPolling],
+	);
 
-		setActiveApps((prev) => {
-			const filtered = prev.filter((app) => app.appId !== appId);
-			return filtered;
-		});
-	}, []);
+	useEffect(
+		() => () => {
+			for (const operation of Object.values(previewPollsRef.current)) {
+				operation?.controller.abort();
+			}
+			previewPollsRef.current = {};
+			for (const connection of Object.values(socketsRef.current)) {
+				connection.dispose();
+			}
+			socketsRef.current = {};
+			connectingRef.current = {};
+		},
+		[],
+	);
 
 	// get info about active apps
 	useEffect(() => {
@@ -486,6 +579,9 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 					}),
 			)
 				.then((results) => {
+					for (const result of results) {
+						if (result.data) appDataRef.current[result.appId] = result.data;
+					}
 					setActiveApps(results);
 				})
 				.catch((error) => {
@@ -520,24 +616,20 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 	const handleStopApp = useCallback(
 		async (appId: string, appName: string) => {
 			try {
-				const response = await apiFetch(`/scripts/stop/${appName}/${appId}`, {
+				await apiRequest(`/scripts/stop/${appName}/${appId}`, {
 					method: "GET",
 				});
 
-				if (response.status === 200) {
-					setShow((prev) => ({ ...prev, [appId]: "actions" }));
-					if (!wasJustInstalled) {
-						window.dione.notify(
-							"Stopping...",
-							`${appName} stopped successfully.`,
-						);
-						showToast("success", `Successfully stopped ${appName}`);
-					}
-					clearLogs(appId);
-					setIsServerRunning((prev) => ({ ...prev, [appId]: false }));
-				} else {
-					showToast("error", `Error stopping ${appName}: ${response.status}`);
+				setShow((prev) => ({ ...prev, [appId]: "actions" }));
+				if (!wasJustInstalled) {
+					window.dione.notify(
+						"Stopping...",
+						`${appName} stopped successfully.`,
+					);
+					showToast("success", `Successfully stopped ${appName}`);
 				}
+				clearLogs(appId);
+				setIsServerRunning((prev) => ({ ...prev, [appId]: false }));
 			} catch (error) {
 				showToast("error", `Error stopping ${appName}: ${error}`);
 				window.dione.notify("Error...", `Error stopping ${appName}: ${error}`);
@@ -584,7 +676,6 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 			show,
 			setShow,
 			showToast,
-			stopCheckingRef,
 			iframeSrc,
 			setIframeSrc,
 			catchPort,

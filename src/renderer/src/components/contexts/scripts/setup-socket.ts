@@ -1,4 +1,7 @@
-import type { SetupSocketProps } from "@/components/contexts/types/context-types";
+import type {
+	ScriptSocketConnection,
+	SetupSocketProps,
+} from "@/components/contexts/types/context-types";
 import successSound from "@/components/features/first-time/sounds/success.mp3";
 import { sendDiscordReport } from "@/utils/discord-webhook";
 import {
@@ -6,7 +9,7 @@ import {
 	isConfig,
 	readStoredJson,
 } from "@/utils/local-storage";
-import { type Socket, io as clientIO } from "socket.io-client";
+import { io as clientIO } from "socket.io-client";
 
 export function setupSocket({
 	appId,
@@ -19,34 +22,34 @@ export function setupSocket({
 	loadIframe,
 	errorRef,
 	showToast,
-	stopCheckingRef,
 	setStatusLog,
 	setDeleteLogs,
-	data,
-	socketsRef,
+	getAppData,
+	shouldCatchRef,
+	onDisconnect,
 	setAppFinished,
 	setNotSupported,
 	setWasJustInstalled,
 	setProgress,
-	shouldCatch,
 	setShouldCatch,
 	setCurrentCommand,
-}: SetupSocketProps): Socket {
-	if (socketsRef.current[appId]?.socket) {
-		console.log(`Socket [${appId}] already exists`);
-		return socketsRef.current[appId].socket;
-	}
+}: SetupSocketProps): ScriptSocketConnection {
+	let disposed = false;
 	const socket = clientIO(`http://localhost:${port}`, {
+		reconnection: false,
 		auth: async (callback) => {
 			try {
 				const credentials = await window.dione.getSocketCredentials(appId);
+				if (disposed) return;
 				callback({ ticket: credentials.ticket, appId });
 			} catch {
+				if (disposed) return;
 				callback({ ticket: "", appId });
 			}
 		},
 	});
-	const settings = readStoredJson<StoredConfig>("config", () => ({}), isConfig);
+	const getSettings = () =>
+		readStoredJson<StoredConfig>("config", () => ({}), isConfig);
 
 	// progress tracking state per socket/app
 	let structuredRunActive = false;
@@ -152,7 +155,12 @@ export function setupSocket({
 
 	socket.on("disconnect", () => {
 		console.warn(`Socket [${appId}] disconnected`);
-		delete socketsRef.current[appId];
+		if (!disposed) onDisconnect(appId, socket);
+	});
+
+	socket.on("connect_error", (error) => {
+		console.warn(`Socket [${appId}] failed to connect:`, error);
+		if (!disposed) onDisconnect(appId, socket);
 	});
 
 	// structured progress events
@@ -239,7 +247,7 @@ export function setupSocket({
 
 	socket.on("missingDeps", (data) => {
 		console.log("MISSING DEPS FOUND");
-		setMissingDependencies(data);
+		setMissingDependencies((prev) => ({ ...prev, [appId]: data }));
 	});
 
 	socket.on("dependencyDiagnostics", (payload) => {
@@ -272,6 +280,8 @@ export function setupSocket({
 			portToCatch?: string;
 		}) => {
 			const { type, status, content, portToCatch } = message;
+			const appData = getAppData(appId);
+			const appName = appData?.name || "Script";
 			// console.log(`[${appId}] LOG:`, message);
 			if (type === "currentCommand") {
 				setCurrentCommand((prev) => ({
@@ -282,8 +292,8 @@ export function setupSocket({
 			}
 
 			if (content?.toLowerCase().includes("error") || status === "error") {
-				errorRef.current = true;
-				if (settings.sendAnonymousReports && content) {
+				errorRef.current[appId] = true;
+				if (getSettings().sendAnonymousReports && content) {
 					sendDiscordReport(content, {
 						userReport: false,
 					});
@@ -293,23 +303,25 @@ export function setupSocket({
 			// get if app should search for a port or use catch label
 			if (type === "shouldCatch?") {
 				console.log("should catch port?", content);
-				setShouldCatch((prev) => ({ ...prev, [appId]: Boolean(content) }));
+				setShouldCatch((prev) => ({
+					...prev,
+					[appId]: content === "true",
+				}));
 
 				if (content === "true" && portToCatch) {
 					console.log("catching port", content);
-					stopCheckingRef.current = false;
 					setIframeAvailable((prev) => ({ ...prev, [appId]: false }));
 					setCatchPort((prev) => ({
 						...prev,
 						[appId]: Number.parseInt(portToCatch),
 					}));
-					loadIframe(Number.parseInt(portToCatch));
+					void loadIframe(appId, Number.parseInt(portToCatch));
 				}
 			}
 			// launch iframe if server is running
 			if (
 				((type === "log" || type === "info") &&
-					!shouldCatch[appId] &&
+					!shouldCatchRef.current[appId] &&
 					(content.toLowerCase().includes("started server") ||
 						content.toLowerCase().includes("http") ||
 						content.toLowerCase().includes("127.0.0.1") ||
@@ -327,12 +339,12 @@ export function setupSocket({
 						/(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/i,
 					);
 				if (match) {
-					loadIframe(Number.parseInt(match[1]));
+					void loadIframe(appId, Number.parseInt(match[1]));
 					setCatchPort((prev) => ({
 						...prev,
 						[appId]: Number.parseInt(match[1]),
 					}));
-					setIframeAvailable((prev) => ({ ...prev, [appId]: true }));
+					setIframeAvailable((prev) => ({ ...prev, [appId]: false }));
 				}
 			}
 			if (type === "log") {
@@ -356,7 +368,10 @@ export function setupSocket({
 				}
 			}
 			if (type === "status") {
-				setStatusLog({ [appId]: { status: status || "pending", content } });
+				setStatusLog((prev) => ({
+					...prev,
+					[appId]: { status: status || "pending", content },
+				}));
 				// reflect status into progress
 				if (status === "error") {
 					scheduleApply(lastPercent, content, "error");
@@ -370,24 +385,25 @@ export function setupSocket({
 				if (content.toLowerCase().includes("actions executed")) {
 					window.dione.notify(
 						"Actions executed",
-						`${data.name} has finished successfully.`,
+						`${appName} has finished successfully.`,
 					);
-					stopCheckingRef.current = true;
 
 					setAppFinished((prev) => ({ ...prev, [appId]: true }));
 				}
 			}
 
-			if (content === "Script killed successfully" && !errorRef.current) {
-				stopCheckingRef.current = true;
-				showToast("success", `${data?.name || "Script"} exited successfully.`);
+			if (
+				content === "Script killed successfully" &&
+				!errorRef.current[appId]
+			) {
+				showToast("success", `${appName} exited successfully.`);
 			}
 
 			if (type === "installFinished") {
 				console.log("App finished installation");
 				setWasJustInstalled(true);
 
-				if (settings.enableSuccessSound) {
+				if (getSettings().enableSuccessSound) {
 					const audioRef = new Audio(successSound);
 					audioRef.volume = 0.7;
 					audioRef.currentTime = 0;
@@ -399,9 +415,11 @@ export function setupSocket({
 		},
 	);
 
-	socket.on("notSupported", (message: { reasons: string }) => {
-		const reasons = [message.reasons];
-		setNotSupported((prev) => ({ ...prev, [appId]: { reasons } }));
+	socket.on("notSupported", (message: { reasons: string[] }) => {
+		setNotSupported((prev) => ({
+			...prev,
+			[appId]: { reasons: message.reasons },
+		}));
 		window.dione.notify(
 			"Script execution failed",
 			"Do not meet the minimum requirements to use an app.",
@@ -412,6 +430,16 @@ export function setupSocket({
 		setDeleteLogs((prevLogs) => [...prevLogs, message]);
 	});
 
-	socketsRef.current[appId] = { socket };
-	return socket;
+	const dispose = () => {
+		if (disposed) return;
+		disposed = true;
+		if (debounceTimer) clearTimeout(debounceTimer);
+		debounceTimer = undefined;
+		socket.removeAllListeners();
+		socket.io.reconnection(false);
+		socket.disconnect();
+		socket.io.removeAllListeners();
+	};
+
+	return { socket, dispose };
 }

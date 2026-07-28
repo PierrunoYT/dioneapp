@@ -22,12 +22,15 @@ export function createScriptRouter(io: Server) {
 
 		try {
 			await getScripts(id, io, force);
-			res.status(200).send("Script downloaded successfully.");
+			res.status(200).json({ success: true });
 		} catch (error: any) {
 			logger.error(
 				`Error handling download request: [ (${error.code || "No code"}) ${error.details || "No details"} ]`,
 			);
-			res.status(500).send("An error occurred while processing your request.");
+			res.status(500).json({
+				success: false,
+				error: error?.message || "Download or installation failed",
+			});
 		}
 	});
 
@@ -118,7 +121,9 @@ export function createScriptRouter(io: Server) {
 				id,
 				selectedStart !== "" ? selectedStart : undefined,
 			);
-			res.status(200).send({ message: "Script started successfully" });
+			res
+				.status(200)
+				.send({ success: true, message: "Script started successfully" });
 		} catch (error: any) {
 			logger.error("Error handling start request - Full error:", error);
 			logger.error(`Error message: ${error.message}`);
@@ -126,7 +131,10 @@ export function createScriptRouter(io: Server) {
 			logger.error(
 				`Error handling start request: [ (${error.code || "No code"}) ${error.message || error.details || "No details"} ]`,
 			);
-			res.status(500).send("An error occurred while processing your request.");
+			res.status(500).json({
+				success: false,
+				error: error?.message || "Script failed to start",
+			});
 		} finally {
 			activeStarts.delete(key);
 		}

@@ -39,6 +39,12 @@ export type DependencyDiagnosticsState = Record<
 	Record<string, DependencyDiagnostic>
 >;
 
+export interface ScriptSocketConnection {
+	socket: Socket;
+	dispose: () => void;
+	isLocal?: boolean;
+}
+
 export interface ScriptsLogContextType {
 	logs: Record<string, string>;
 	setLogs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -77,8 +83,10 @@ export interface ScriptsContextType {
 		React.SetStateAction<Record<string, boolean>>
 	>;
 	iframeAvailable: Record<string, boolean>;
-	setMissingDependencies: React.Dispatch<React.SetStateAction<any>>;
-	missingDependencies: any;
+	setMissingDependencies: React.Dispatch<
+		React.SetStateAction<Record<string, any[]>>
+	>;
+	missingDependencies: Record<string, any[]>;
 	dependencyDiagnostics: DependencyDiagnosticsState;
 	setDependencyDiagnostics: React.Dispatch<
 		React.SetStateAction<DependencyDiagnosticsState>
@@ -94,7 +102,6 @@ export interface ScriptsContextType {
 		buttonAction?: () => void,
 		removeAfter?: number,
 	) => void;
-	stopCheckingRef: React.MutableRefObject<boolean>;
 	iframeSrc: Record<string, string>;
 	setIframeSrc: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 	catchPort: Record<string, number>;
@@ -110,14 +117,14 @@ export interface ScriptsContextType {
 	setRemovedApps: React.Dispatch<React.SetStateAction<any[]>>;
 	availableApps: any[];
 	setAvailableApps: React.Dispatch<React.SetStateAction<any[]>>;
-	connectApp: (appId: string, isLocal?: boolean) => void;
+	connectApp: (appId: string, isLocal?: boolean) => Promise<void>;
 	disconnectApp: (appId: string) => void;
-	sockets: Record<string, { socket: Socket; isLocal?: boolean }>;
+	sockets: Record<string, ScriptSocketConnection>;
 	activeApps: any[];
 	handleStopApp: (appId: string, appName: string) => void;
 	appFinished: Record<string, boolean>;
 	setAppFinished: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-	loadIframe: (port: number) => void;
+	loadIframe: (appId: string, port: number) => Promise<void>;
 	setLocalApps: React.Dispatch<React.SetStateAction<any[]>>;
 	localApps: any[];
 	setNotSupported: React.Dispatch<
@@ -144,7 +151,9 @@ export interface SetupSocketProps {
 	appId: string;
 	addLog: (appId: string, log: string) => void;
 	port: number;
-	setMissingDependencies: React.Dispatch<React.SetStateAction<any>>;
+	setMissingDependencies: React.Dispatch<
+		React.SetStateAction<Record<string, any[]>>
+	>;
 	setDependencyDiagnostics: React.Dispatch<
 		React.SetStateAction<DependencyDiagnosticsState>
 	>;
@@ -152,9 +161,8 @@ export interface SetupSocketProps {
 		React.SetStateAction<Record<string, boolean>>
 	>;
 	setCatchPort: React.Dispatch<React.SetStateAction<Record<string, number>>>;
-	loadIframe: (port: number) => void;
-	setIframeSrc: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-	errorRef: React.MutableRefObject<boolean>;
+	loadIframe: (appId: string, port: number) => Promise<void>;
+	errorRef: React.MutableRefObject<Record<string, boolean>>;
 	showToast: (
 		variant: "default" | "success" | "error" | "warning",
 		message: string,
@@ -163,15 +171,13 @@ export interface SetupSocketProps {
 		buttonText?: string,
 		buttonAction?: () => void,
 	) => void;
-	stopCheckingRef: React.MutableRefObject<boolean>;
 	setStatusLog: React.Dispatch<
 		React.SetStateAction<Record<string, { status: string; content: string }>>
 	>;
 	setDeleteLogs: React.Dispatch<React.SetStateAction<string[]>>;
-	data: any;
-	socketsRef: React.MutableRefObject<
-		Record<string, { socket: Socket; isLocal?: boolean }>
-	>;
+	getAppData: (appId: string) => any;
+	shouldCatchRef: React.MutableRefObject<Record<string, boolean>>;
+	onDisconnect: (appId: string, socket: Socket) => void;
 	setAppFinished: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 	setNotSupported: React.Dispatch<
 		React.SetStateAction<Record<string, { reasons: string[] }>>
@@ -181,7 +187,6 @@ export interface SetupSocketProps {
 		React.SetStateAction<Record<string, ProgressState>>
 	>;
 	setShouldCatch: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-	shouldCatch: Record<string, boolean>;
 	isLocal?: boolean;
 	setCurrentCommand: React.Dispatch<
 		React.SetStateAction<Record<string, string>>

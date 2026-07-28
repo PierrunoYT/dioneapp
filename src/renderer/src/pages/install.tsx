@@ -5,7 +5,7 @@ import LogsComponent from "@/components/features/install/logs";
 import NotSupported from "@/components/features/install/not-supported";
 import DeleteLoadingModal from "@/components/features/modals/delete-loading";
 import { useTranslation } from "@/translations/translation-context";
-import { apiFetch, apiJson } from "@/utils/api";
+import { apiJson, apiRequest } from "@/utils/api";
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -13,6 +13,9 @@ import {
 	useScriptsContext,
 	useScriptsLogsContext,
 } from "../components/contexts/scripts-context";
+
+const isMissingDependenciesError = (error: unknown) =>
+	error instanceof Error && error.message.startsWith("Missing dependencies:");
 
 export default function Install({
 	id,
@@ -46,7 +49,6 @@ export default function Install({
 		handleStopApp,
 		activeApps,
 		appFinished,
-		loadIframe,
 		setLocalApps,
 		notSupported,
 		sockets,
@@ -83,6 +85,9 @@ export default function Install({
 
 	// auto-install missing dependencies
 	const [installingDeps, setInstallingDeps] = useState<boolean>(false);
+	const currentMissingDependencies = data?.id
+		? missingDependencies[data.id]
+		: undefined;
 
 	// start options
 	const [startOptions, setStartOptions] = useState<any>(null);
@@ -92,7 +97,7 @@ export default function Install({
 	useEffect(() => {
 		async function autoInstallMissingDependencies() {
 			if (!data?.id || !data?.name) return;
-			const missing = missingDependencies.filter(
+			const missing = currentMissingDependencies?.filter(
 				(dep) =>
 					dep.reason === "not-installed" || dep.reason === "version-mismatch",
 			);
@@ -108,18 +113,17 @@ export default function Install({
 			}
 
 			try {
-				const response = await apiFetch(`/deps/install/${data.id}`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						dependencies: missing,
-						nameFolder: data.name.replace(/\s+/g, "-"),
-					}),
-				});
-				if (!response.ok) {
-					throw new Error(String(response.status));
-				}
-				const result = await response.json();
+				const result = await apiJson<{ success?: boolean }>(
+					`/deps/install/${data.id}`,
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							dependencies: missing,
+							nameFolder: data.name.replace(/\s+/g, "-"),
+						}),
+					},
+				);
 				if (result?.success) {
 					addLogLine(data.id, "dependencies installed successfully");
 					await onFinishInstallDeps();
@@ -147,11 +151,11 @@ export default function Install({
 			}
 		}
 
-		if (missingDependencies && !installingDeps) {
+		if (currentMissingDependencies && !installingDeps) {
 			setInstallingDeps(true);
 			autoInstallMissingDependencies();
 		}
-	}, [missingDependencies, data?.id]);
+	}, [currentMissingDependencies, data?.id]);
 
 	// on unmount, show nothing
 	useEffect(() => {
@@ -208,7 +212,7 @@ export default function Install({
 		data?.id,
 		config?.autoOpenAfterInstall,
 		wasJustInstalled,
-		missingDependencies,
+		currentMissingDependencies,
 		handleStopApp,
 		fetchIfDownloaded,
 		setShow,
@@ -408,18 +412,18 @@ export default function Install({
 				if (!approvalNonce) {
 					throw new Error("Local script execution was not approved");
 				}
-				await apiFetch(`/local/load/${data.name}`, {
+				await apiRequest(`/local/load/${data.name}`, {
 					method: "POST",
 					body: JSON.stringify({ approvalNonce }),
 					headers: { "Content-Type": "application/json" },
 				});
 			} else {
 				if (force) {
-					await apiFetch(`/scripts/download/${id}?force=true`, {
+					await apiRequest(`/scripts/download/${id}?force=true`, {
 						method: "GET",
 					});
 				} else {
-					await apiFetch(`/scripts/download/${id}`, {
+					await apiRequest(`/scripts/download/${id}`, {
 						method: "GET",
 					});
 				}
@@ -431,11 +435,13 @@ export default function Install({
 			}
 			setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
 		} catch (error) {
-			showToast(
-				"error",
-				t("toast.install.error.download").replace("%s", String(error)),
-			);
-			addLogLine(data?.id, "Error initiating download");
+			if (!isMissingDependenciesError(error)) {
+				showToast(
+					"error",
+					t("toast.install.error.download").replace("%s", String(error)),
+				);
+				addLogLine(data?.id, "Error initiating download");
+			}
 			setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
 		}
 
@@ -472,7 +478,7 @@ export default function Install({
 			if (!isServerRunning[data?.id]) {
 				setShow({ [data?.id]: "logs" });
 				window.dione.notify("Starting...", `Starting ${data.name}`);
-				await apiFetch(
+				await apiRequest(
 					`/scripts/start/${data?.name}/${data?.id}${selectedStart ? `?start=${encodeURIComponent(selectedStart)}` : ""}`,
 					{
 						method: "POST",
@@ -483,13 +489,15 @@ export default function Install({
 				);
 			}
 		} catch (error) {
-			showToast(
-				"error",
-				t("toast.install.error.start")
-					.replace("%s", data.name)
-					.replace("%s", String(error)),
-			);
-			addLogLine(data?.id, `Error initiating ${data.name}`);
+			if (!isMissingDependenciesError(error)) {
+				showToast(
+					"error",
+					t("toast.install.error.start")
+						.replace("%s", data.name)
+						.replace("%s", String(error)),
+				);
+				addLogLine(data?.id, `Error initiating ${data.name}`);
+			}
 			setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
 		}
 	}
@@ -497,35 +505,17 @@ export default function Install({
 	async function stop(type?: string) {
 		try {
 			console.log("stopping...");
-			const response = await apiFetch(`/scripts/stop/${data.name}/${data.id}`, {
+			await apiRequest(`/scripts/stop/${data.name}/${data.id}`, {
 				method: "GET",
 			});
-			if (response.status === 200) {
-				setShow({ [data?.id]: "actions" });
-				setInstalled(true);
-				// notification intentionally omitted (
-				//     "notify",
-				//     "Stopping...",
-				//     `${data.name} stopped successfully.`,
-				// );
-				// showToast(
-				//     "success",
-				//     t("toast.install.success.stopped").replace("%s", data.name),
-				// );
-				clearLogs(data?.id);
-				setExecuting(null);
-				await fetchIfDownloaded();
-				setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
-				if (type === "exit") {
-					window.dione.closeApp();
-				}
-			} else {
-				showToast(
-					"error",
-					t("toast.install.error.stop")
-						.replace("%s", data?.name || "app")
-						.replace("%s", String(response.status)),
-				);
+			setShow({ [data?.id]: "actions" });
+			setInstalled(true);
+			clearLogs(data?.id);
+			setExecuting(null);
+			await fetchIfDownloaded();
+			setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
+			if (type === "exit") {
+				window.dione.closeApp();
 			}
 		} catch (error) {
 			showToast(
@@ -572,6 +562,9 @@ export default function Install({
 						data?.id,
 						`Error uninstalling dependencies: ${result.reasons?.join(", ") || result.error || "Unknown error"}`,
 					);
+					await fetchIfDownloaded().catch(() => false);
+					await handleReloadQuickLaunch();
+					return;
 				}
 			} else {
 				await uninstallApp();
@@ -585,45 +578,29 @@ export default function Install({
 					.replace("%s", String(error)),
 			);
 			addLogLine(data?.id, `Error uninstalling ${data.name}`);
+			await fetchIfDownloaded().catch(() => false);
+			await handleReloadQuickLaunch();
+			return;
 		}
 		await handleStopApp(data?.id, data?.name);
 		setLocalApps((prev) => prev.filter((app) => app.name !== data.name));
-		handleReloadQuickLaunch();
+		await fetchIfDownloaded();
+		await handleReloadQuickLaunch();
 	}
 
 	async function uninstallApp() {
-		const response = await apiFetch(`/scripts/delete/${data.name}`, {
+		await apiRequest(`/scripts/delete/${data.name}`, {
 			method: "GET",
 		});
-		if (response.status === 200) {
-			setDeleteStatus("deleted");
-			window.dione.notify(
-				"Uninstalling...",
-				`${data.name} uninstalled successfully.`,
-			);
-			showToast(
-				"success",
-				t("toast.install.success.uninstalled").replace("%s", data.name),
-			);
-			setInstalled(false);
-			await fetchIfDownloaded();
-			setInstalledApps((prevApps) =>
-				prevApps.filter((app) => app.name !== data.name),
-			);
-			setApps((prevApps) => prevApps.filter((app) => app?.name !== data.name));
-		} else {
-			setDeleteStatus("error");
-			window.dione.notify(
-				"Error...",
-				`Error uninstalling ${data.name}: Error ${response.status}`,
-			);
-			showToast(
-				"error",
-				t("toast.install.error.uninstall")
-					.replace("%s", data.name)
-					.replace("%s", String(response.status)),
-			);
-		}
+		setDeleteStatus("deleted");
+		window.dione.notify(
+			"Uninstalling...",
+			`${data.name} uninstalled successfully.`,
+		);
+		showToast(
+			"success",
+			t("toast.install.success.uninstalled").replace("%s", data.name),
+		);
 	}
 
 	const copyLogsToClipboard = () => {
@@ -714,7 +691,11 @@ export default function Install({
 		setApps((prevApps) => prevApps.filter((app) => app?.name !== data.name));
 
 		// clear missing deps
-		setMissingDependencies(null);
+		setMissingDependencies((prev) => {
+			const next = { ...prev };
+			delete next[data.id];
+			return next;
+		});
 
 		// show success toast
 		showToast("success", t("toast.install.success.depsInstalled"));
@@ -757,14 +738,12 @@ export default function Install({
 	const stopApp = async () => {
 		if (installingDeps) {
 			try {
-				const response = await apiFetch(`/deps/cancel/${data.id}`, {
+				await apiRequest(`/deps/cancel/${data.id}`, {
 					method: "POST",
 				});
 				addLogLine(data.id, "Cancellation requested...");
-				if (response.ok) {
-					addLogLine(data.id, "Cancellation successful");
-					disconnectApp(data.id);
-				}
+				addLogLine(data.id, "Cancellation successful");
+				disconnectApp(data.id);
 			} catch (error) {
 				console.error("Failed to cancel dependencies", error);
 				showToast("error", `Failed to cancel dependencies: ${error}`);
@@ -792,7 +771,6 @@ export default function Install({
 			installed &&
 			!shouldCatch[data.id]
 		) {
-			loadIframe(catchPort[data.id]);
 			const logText = `INFO: Preview started for ${data.name} on port ${catchPort[data.id]}`;
 
 			// avoid duplicate log lines

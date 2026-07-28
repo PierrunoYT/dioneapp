@@ -158,6 +158,18 @@ interface FetchOptions {
 	forceRefreshPort?: boolean;
 }
 
+export class ApiError extends Error {
+	readonly status: number;
+	readonly response: Response;
+
+	constructor(message: string, response: Response) {
+		super(message);
+		this.name = "ApiError";
+		this.status = response.status;
+		this.response = response;
+	}
+}
+
 export const apiFetch = async (
 	path: string | URL,
 	init?: RequestInit,
@@ -183,16 +195,36 @@ export const apiFetch = async (
 	});
 };
 
+export const apiRequest = async (
+	path: string | URL,
+	init?: RequestInit,
+	opts?: FetchOptions,
+): Promise<Response> => {
+	const response = await apiFetch(path, init, opts);
+	if (response.ok) return response;
+
+	let message = `Request failed with status ${response.status}`;
+	const body = await response.clone().text();
+	if (body) {
+		try {
+			const payload = JSON.parse(body) as {
+				error?: unknown;
+				message?: unknown;
+			};
+			const detail = payload.error ?? payload.message;
+			if (typeof detail === "string" && detail.trim()) message = detail;
+		} catch {
+			message = body;
+		}
+	}
+	throw new ApiError(message, response);
+};
+
 export const apiJson = async <T>(
 	path: string | URL,
 	init?: RequestInit,
 	opts?: FetchOptions,
 ): Promise<T> => {
-	const response = await apiFetch(path, init, opts);
-	if (!response.ok) {
-		const error = new Error(`Request failed with status ${response.status}`);
-		(error as Error & { response?: Response }).response = response;
-		throw error;
-	}
+	const response = await apiRequest(path, init, opts);
 	return (await response.json()) as T;
 };
