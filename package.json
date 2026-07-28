@@ -58,7 +58,7 @@
 		"generate-icons": "npx tsx scripts/generate-icons.ts",
 		"generate-licenses": "node scripts/generate-third-party-notices.mjs",
 		"check-licenses": "node scripts/generate-third-party-notices.mjs --check",
-		"deploy": "npm run attest-deployment && npx auto-changelog --package --commit-limit false --commit-url https://github.com/dioneapp/dioneapp/commits/main/ --sort-commits date-desc --release-summary && npm run build && electron-builder --win --publish always"
+		"deploy": "npm run attest-deployment && npm run build && electron-builder --win --publish always"
 	},
 	"build": {
 		"appId": "dione",

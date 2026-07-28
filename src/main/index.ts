@@ -47,6 +47,7 @@ import {
 	Notification,
 	Tray,
 	app,
+	clipboard,
 	dialog,
 	globalShortcut,
 	ipcMain,
@@ -820,6 +821,13 @@ app.whenReady().then(async () => {
 	}
 
 	secureHandle("get-version", () => app.getVersion());
+
+	// The clipboard module is unavailable in sandboxed preloads, so writes are
+	// performed here on behalf of the renderer.
+	secureHandle("clipboard:write-text", (_event, text: unknown) => {
+		if (typeof text !== "string") throw new TypeError("Invalid clipboard text");
+		clipboard.writeText(text);
+	});
 
 	// Add Discord presence update handler
 	secureHandle(

@@ -89,7 +89,7 @@ interface DioneAPI {
 	openPreview(url: string): void;
 	closePreview(): void;
 	captureScreenshot(): Promise<string | null>;
-	copyText(text: string): void;
+	copyText(text: string): Promise<void>;
 	updateDiscordPresence(details: string, state: string): Promise<void>;
 }
 

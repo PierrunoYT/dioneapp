@@ -38,7 +38,7 @@ Currently no test framework is configured. When adding tests, check for existing
 ```bash
 npm generate-translations  # Generate translations using Gemini API
 npm generate-icons         # Generate app icons
-npm deploy                 # Build and publish with auto-changelog
+npm deploy                 # Attest, build, and publish (CHANGELOG.md is maintained by hand)
 ```
 
 ## Code Style Guidelines

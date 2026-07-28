@@ -27,9 +27,6 @@ bin
 .env
 electron-builder.env
 
-# changelog
-CHANGELOG.md
-
 # bin
 /bin
 

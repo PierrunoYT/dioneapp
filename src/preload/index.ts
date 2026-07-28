@@ -1,6 +1,18 @@
-import { randomUUID } from "node:crypto";
-import { clipboard, contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import { createBackendCaller } from "./backend-call";
+
+// Sandboxed preloads cannot require Node builtins, so request identifiers come
+// from the Web Crypto API exposed in the renderer context.
+const randomUUID = (): string => {
+	if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = Array.from(bytes, (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
 
 const on = <T>(channel: string, callback: (value: T) => void) => {
 	const listener = (_event: Electron.IpcRendererEvent, value: T) =>
@@ -71,7 +83,7 @@ const dione = Object.freeze({
 	openPreview: (url: string) => ipcRenderer.send("new-window", url),
 	closePreview: () => ipcRenderer.send("close-preview-window"),
 	captureScreenshot: () => ipcRenderer.invoke("capture-screenshot"),
-	copyText: (text: string) => clipboard.writeText(text),
+	copyText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
 	updateDiscordPresence: (details: string, state: string) =>
 		ipcRenderer.invoke("update-discord-presence", details, state),
 });
