@@ -6,11 +6,13 @@
 
 **Baseline health score:** **24/100 — high risk**
 
+**Current health score (July 28, 2026):** **82/100 — substantially improved; deployment validation and test coverage remain**
+
 ## Executive summary
 
 This audit covered every tracked file in the repository—approximately 66,961 lines—including the Electron main process and preload, Express and Socket.IO backend, installation and process-management subsystem, renderer, AI/Ollama integration, Supabase routes, build and packaging configuration, CI/CD, scripts, translations, dependencies, and documentation.
 
-At the baseline audit, the dominant problem was architectural: Dione exposed filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an unauthenticated HTTP/Socket.IO control plane, while the renderer had a generic IPC bridge and Chromium hardening was disabled. The July 28 critical-remediation pass replaced those boundaries with authenticated loopback transport, a sender-checked typed preload, sandboxed web content, canonical path enforcement, and fail-closed manifest trust. The baseline findings and score remain below as historical evidence; the remediation tables are authoritative for current status.
+At the baseline audit, the dominant problem was architectural: Dione exposed filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an unauthenticated HTTP/Socket.IO control plane, while the renderer had a generic IPC bridge and Chromium hardening was disabled. The July 28 remediation passes replaced those boundaries with authenticated loopback transport, a sender-checked typed preload, sandboxed web content, canonical path enforcement, fail-closed manifest and artifact trust, bounded process ownership, explicit diagnostic consent, and upgraded runtime dependencies. The baseline findings and score remain below as historical evidence; the remediation tables are authoritative for current status.
 
 At baseline, these weaknesses compounded each other: a renderer compromise, malicious local website, local process, exposed tunnel client, prompt injection, or compromised script repository could potentially reach native operating-system capabilities.
 
@@ -25,6 +27,29 @@ At baseline, these weaknesses compounded each other: a renderer compromise, mali
 | **Total** | **62** |
 
 Closely related endpoint- or installer-specific defects are consolidated under shared root causes rather than repeated as separate findings.
+
+### Current score reassessment — July 28, 2026
+
+The post-remediation static health score is **82/100**. This replaces neither the original **24/100** baseline nor the individual finding history. It reflects the current repository after code-level remediation of C-01 through C-08, M-01 through M-21, all Low findings, and most High findings. It is not a security certification or a substitute for deployment testing.
+
+| Dimension | Weight | Current score | Basis |
+|---|---:|---:|---|
+| Security boundaries and data protection | 32 | 28 | Native control-plane authentication, typed IPC, sandboxing, path containment, signed manifests, and explicit diagnostic consent are implemented. Publisher trust deployment, Supabase anonymous-key/RLS verification, and a hostile-filesystem race caveat remain. |
+| Correctness and reliability | 20 | 17 | Installation failures now propagate, renderer mutations fail correctly, stale async state is generation-owned, and shutdown/configuration workflows are hardened. Some IPC requests cannot yet forward abort signals, and fail-closed installer support reduces platform compatibility. |
+| Process and concurrency safety | 15 | 13 | Operations own cancellation and child processes, output and deadlines are bounded, and termination escalates predictably. A deliberately reparented daemon cannot always be rediscovered without OS job/process-group ownership. |
+| Dependencies and installer supply chain | 15 | 12 | Enabled artifacts are pinned and verified, archive extraction is hardened, and production advisories fell from 28 to 2. Several unverifiable platform artifacts are disabled, and two duplicate React Router advisory entries have no published forward fix. |
+| Automated testing and verification | 10 | 5 | Typechecking, formatting, builds, packaging, license checks, trust/privacy assertions, and deterministic installer attack fixtures pass, but the repository still has no broad unit, integration, or end-to-end test harness. |
+| Maintainability and documentation | 8 | 7 | Shared boundaries replaced several ad hoc patterns, stale documentation was corrected, notices are generated, and the audit tracks remediation. Some deployment runbooks and regression coverage are still needed. |
+| **Total** | **100** | **82** | **Substantially improved, with important external validation and test-maturity work remaining.** |
+
+The 18-point deduction is driven by concrete residual risk rather than unresolved baseline exploit chains:
+
+- remote installation remains intentionally unavailable until `DIONE_PUBLISHER_TRUST_STORE` and signed catalog metadata are deployed;
+- the deployed Supabase credential must be independently confirmed as anonymous and every reachable table must have tested row-level security;
+- unverifiable FFmpeg, Node Linux/macOS, Ollama Linux/macOS, and CUDA Linux installer paths are disabled rather than insecurely supported;
+- two High React Router audit entries remain for an RSC/server-action path Dione does not use, with no published fixed forward release;
+- process-tree ownership and no-follow filesystem behavior retain documented platform defense-in-depth caveats; and
+- the absence of comprehensive automated behavioral tests is now the largest general code-health gap.
 
 ## Remediation update — July 27, 2026
 
@@ -61,7 +86,7 @@ All nine low-severity findings from the baseline audit have been remediated:
 | L-08 | Resolved | README repository, release, support, security, account-status, and maintenance-status copy was updated; stale renderer login entry points were removed. |
 | L-09 | Resolved | Added a deterministic lockfile-derived `THIRD_PARTY_NOTICES.md`, explicit reviewed overrides for the three lock entries without license metadata, packaging rules, and a build-time freshness check. |
 
-The **24/100 score remains the historical baseline score** and has not been recalculated. The unresolved critical and high findings continue to dominate current risk.
+The **24/100 score remains the historical baseline for this stage of the remediation timeline**. The current post-remediation score is **82/100**; see the reassessment above.
 
 ## Medium-severity remediation update — July 28, 2026
 
@@ -92,7 +117,7 @@ The code-level remediation for M-01 through M-21 is complete. M-02 and M-20 were
 | M-21 | Resolved | Runtime translation lookup falls back to English, locale selection is validated, and CI checks every locale for invalid or unknown schema entries. |
 | M-22 | **Conditionally resolved** | Build-time webhook and privileged API-token injection was removed. Bundled Supabase values are explicitly public URL/anonymous credentials; reports pass through the backend and privileged service access uses optional runtime-only `DIONE_API_KEY`. Confirm that the deployed key is truly anonymous and that RLS is enabled and tested for every reachable table before closing this finding. |
 
-The **24/100 health score remains the historical audit baseline**; it has not been recalculated. At this point in the remediation history, critical and high findings still dominated overall risk. The medium-finding table below is retained as the original baseline evidence and recommendation record; the latest remediation update is authoritative for current status.
+The **24/100 health score remains the historical audit baseline**. The current post-remediation score is **82/100**. The medium-finding table below is retained as the original baseline evidence and recommendation record; the latest remediation update is authoritative for current status.
 
 ## Critical-severity remediation update — July 28, 2026
 
@@ -118,7 +143,7 @@ The code-level remediation for C-01 through C-08 is complete. All critical explo
 - Focused Ed25519 trust test covering valid signed load, tamper rejection, local hash-bound approval, and nonce replay rejection
 - Static negative searches for generic IPC/webview/no-sandbox patterns, renderer bearer-token exposure, unsigned command replacement, and removed database mutation routes
 
-The **24/100 score remains the historical baseline**. It should be recalculated only after deployment-side trust/RLS prerequisites and the remaining conditional High findings are independently verified.
+The **24/100 score remains the historical baseline**. The current code-level score is **82/100**, with explicit deductions for deployment-side trust/RLS prerequisites, conditional High findings, defense-in-depth caveats, and missing broad behavioral test coverage.
 
 ## High-severity remediation update — July 28, 2026
 
