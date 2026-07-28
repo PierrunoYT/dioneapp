@@ -1,230 +1,219 @@
 {
-  "name": "dione",
-  "displayName": "Dione",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/dioneapp/dioneapp.git"
-  },
-  "version": "1.1.3",
-  "description": "Explore, Install, Innovate — in 1 Click.",
-  "main": "./out/main/index.js",
-  "author": {
-    "name": "Dione",
-    "email": "deeivihh3@hotmail.com",
-    "url": "https://getdione-app.deeivihh.workers.dev/"
-  },
-  "homepage": "https://getdione-app.deeivihh.workers.dev/",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@biomejs/biome",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "protobufjs",
-      "sharp"
-    ]
-  },
-  "overrides": {
-    "axios": "1.18.1"
-  },
-  "scripts": {
-    "format": "biome format --write ./src",
-    "test": "tsx --test tests/*.test.ts",
-    "check": "npm test && npm run typecheck && biome check ./tests ./src/main/server/scripts/process.ts ./src/main/server/scripts/process-helpers.ts ./src/main/utils/privacy.ts && npm run check-licenses && npm run check-installer-security",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run check-locales && npm run typecheck:node && npm run typecheck:web",
-    "check-locales": "tsx scripts/check-locales.ts",
-    "check-installer-security": "tsx scripts/check-installer-security.ts",
-    "test:router": "tsx --test src/renderer/src/utils/router.test.ts",
-    "check-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --offline",
-    "test-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --self-test",
-    "attest-deployment": "tsx scripts/check-deployment-readiness.ts --release --live",
-    "check-process-ownership": "tsx scripts/check-process-ownership.ts",
-    "start": "electron-vite preview",
-    "dev": "electron-vite dev",
-    "build": "npm run check-licenses && npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win --publish never",
-    "build:mac": "npm run check-licenses && electron-vite build && electron-builder --mac --publish never",
-    "build:linux": "electron-vite build && electron-builder --linux --publish never",
-    "generate-translations": "npx tsx scripts/generate-translations.ts",
-    "generate-icons": "npx tsx scripts/generate-icons.ts",
-    "generate-licenses": "node scripts/generate-third-party-notices.mjs",
-    "check-licenses": "node scripts/generate-third-party-notices.mjs --check",
-    "deploy": "npm run attest-deployment && npx auto-changelog --package --commit-limit false --commit-url https://github.com/dioneapp/dioneapp/commits/main/ --sort-commits date-desc --release-summary && npm run build && electron-builder --win --publish always"
-  },
-  "build": {
-    "appId": "dione",
-    "productName": "Dione",
-    "compression": "maximum",
-    "win": {
-      "target": [
-        "nsis",
-        "appx"
-      ],
-      "icon": "./resources/icon.png",
-      "artifactName": "Dione-${version}-Installer-Windows.${ext}"
-    },
-    "appx": {
-      "publisher": "CN=3A6E9F63-62F3-4EF2-AB9D-5666C6C26D6B",
-      "identityName": "deeivihh.dioneapp",
-      "displayName": "Dione Launcher",
-      "publisherDisplayName": "deeivihh",
-      "backgroundColor": "#000000"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "./resources/dione_liquidglass.icon",
-      "category": "public.app-category.productivity",
-      "artifactName": "Dione-${version}-Installer-Mac.${ext}",
-      "entitlements": "resources/entitlements.mac.plist",
-      "entitlementsInherit": "resources/entitlements.mac.plist",
-      "extendInfo": {
-        "NSCameraUsageDescription": "Application requests access to the device's camera.",
-        "NSMicrophoneUsageDescription": "Application requests access to the device's microphone.",
-        "NSDocumentsFolderUsageDescription": "Application requests access to the user's Documents folder.",
-        "NSDownloadsFolderUsageDescription": "Application requests access to the user's Downloads folder."
-      }
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "./resources/icon.png",
-      "category": "Office",
-      "artifactName": "Dione-${version}-Installer-Linux.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "installerIcon": "./resources/icon.ico",
-      "uninstallerIcon": "./resources/icon.ico",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Dione",
-      "allowToChangeInstallationDirectory": true,
-      "differentialPackage": false,
-      "uninstallDisplayName": "${productName}"
-    },
-    "msi": {
-      "oneClick": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Dione"
-    },
-    "files": [
-      "out/**/*",
-      "resources/**/*",
-      "node_modules/**/*",
-      "package.json",
-      "!node_modules/@tailwindcss/oxide-*/**"
-    ],
-    "extraResources": [],
-    "directories": {
-      "buildResources": "resources"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "dioneapp",
-        "repo": "dioneapp",
-        "releaseType": "release"
-      }
-    ]
-  },
-  "dependencies": {
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/modifiers": "^9.0.0",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
-    "@lydell/node-pty": "^1.1.0",
-    "@monaco-editor/react": "^4.7.0",
-    "@supabase/supabase-js": "^2.109.0",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "class-variance-authority": "^0.7.1",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "electron-store": "^10.1.0",
-    "electron-updater": "^6.8.9",
-    "express": "^5.2.1",
-    "file-type": "^21.3.4",
-    "framer-motion": "^12.23.25",
-    "get-port": "^7.1.0",
-    "isomorphic-git": "^1.36.0",
-    "localtunnel": "^2.0.2",
-    "lucide-react": "^0.523.0",
-    "monaco-editor": "^0.53.0",
-    "nanoid": "^5.1.6",
-    "ollama": "^0.6.3",
-    "pidtree": "^0.6.0",
-    "qrcode.react": "^4.2.0",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1",
-    "react-markdown": "^10.1.0",
-    "react-syntax-highlighter": "^16.1.0",
-    "rehype-raw": "^7.0.0",
-    "rehype-sanitize": "^6.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-github-blockquote-alert": "^2.0.0",
-    "semver": "^7.7.3",
-    "simple-discord-rpc": "^1.0.1",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
-    "systeminformation": "^5.31.7",
-    "winston": "^3.19.0",
-    "wouter": "^3.10.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@electron-toolkit/tsconfig": "^1.0.1",
-    "@google/genai": "^1.52.0",
-    "@tailwindcss/typography": "^0.5.19",
-    "@tailwindcss/vite": "^4.1.17",
-    "@types/localtunnel": "^2.0.4",
-    "@types/node": "^22.19.2",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^41.7.1",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^3.1.0",
-    "icon-gen": "^5.0.0",
-    "sharp": "^0.34.5",
-    "tailwindcss": "^4.1.17",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vite": "^6.4.3"
-  },
-  "engines": {
-    "node": ">=22.12.0"
-  }
+	"name": "dione",
+	"displayName": "Dione",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/dioneapp/dioneapp.git"
+	},
+	"version": "1.1.3",
+	"description": "Explore, Install, Innovate — in 1 Click.",
+	"main": "./out/main/index.js",
+	"author": {
+		"name": "Dione",
+		"email": "deeivihh3@hotmail.com",
+		"url": "https://getdione-app.deeivihh.workers.dev/"
+	},
+	"homepage": "https://getdione-app.deeivihh.workers.dev/",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"@biomejs/biome",
+			"electron",
+			"electron-winstaller",
+			"esbuild",
+			"protobufjs",
+			"sharp"
+		]
+	},
+	"overrides": {
+		"axios": "1.18.1"
+	},
+	"scripts": {
+		"format": "biome format --write .",
+		"lint": "biome check .",
+		"test": "tsx --test tests/*.test.ts",
+		"check": "npm test && npm run typecheck && npm run lint && npm run check-licenses && npm run check-installer-security",
+		"typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+		"typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+		"typecheck": "npm run check-locales && npm run typecheck:node && npm run typecheck:web",
+		"check-locales": "tsx scripts/check-locales.ts",
+		"check-installer-security": "tsx scripts/check-installer-security.ts",
+		"test:router": "tsx --test src/renderer/src/utils/router.test.ts",
+		"check-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --offline",
+		"test-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --self-test",
+		"attest-deployment": "tsx scripts/check-deployment-readiness.ts --release --live",
+		"check-process-ownership": "tsx scripts/check-process-ownership.ts",
+		"start": "electron-vite preview",
+		"dev": "electron-vite dev",
+		"build": "npm run check-licenses && npm run typecheck && electron-vite build",
+		"postinstall": "electron-builder install-app-deps",
+		"build:unpack": "npm run build && electron-builder --dir",
+		"build:win": "npm run build && electron-builder --win --publish never",
+		"build:mac": "npm run check-licenses && electron-vite build && electron-builder --mac --publish never",
+		"build:linux": "electron-vite build && electron-builder --linux --publish never",
+		"generate-translations": "npx tsx scripts/generate-translations.ts",
+		"generate-icons": "npx tsx scripts/generate-icons.ts",
+		"generate-licenses": "node scripts/generate-third-party-notices.mjs",
+		"check-licenses": "node scripts/generate-third-party-notices.mjs --check",
+		"deploy": "npm run attest-deployment && npx auto-changelog --package --commit-limit false --commit-url https://github.com/dioneapp/dioneapp/commits/main/ --sort-commits date-desc --release-summary && npm run build && electron-builder --win --publish always"
+	},
+	"build": {
+		"appId": "dione",
+		"productName": "Dione",
+		"compression": "maximum",
+		"win": {
+			"target": ["nsis", "appx"],
+			"icon": "./resources/icon.png",
+			"artifactName": "Dione-${version}-Installer-Windows.${ext}"
+		},
+		"appx": {
+			"publisher": "CN=3A6E9F63-62F3-4EF2-AB9D-5666C6C26D6B",
+			"identityName": "deeivihh.dioneapp",
+			"displayName": "Dione Launcher",
+			"publisherDisplayName": "deeivihh",
+			"backgroundColor": "#000000"
+		},
+		"mac": {
+			"target": [
+				{
+					"target": "dmg",
+					"arch": ["x64", "arm64"]
+				}
+			],
+			"icon": "./resources/dione_liquidglass.icon",
+			"category": "public.app-category.productivity",
+			"artifactName": "Dione-${version}-Installer-Mac.${ext}",
+			"entitlements": "resources/entitlements.mac.plist",
+			"entitlementsInherit": "resources/entitlements.mac.plist",
+			"extendInfo": {
+				"NSCameraUsageDescription": "Application requests access to the device's camera.",
+				"NSMicrophoneUsageDescription": "Application requests access to the device's microphone.",
+				"NSDocumentsFolderUsageDescription": "Application requests access to the user's Documents folder.",
+				"NSDownloadsFolderUsageDescription": "Application requests access to the user's Downloads folder."
+			}
+		},
+		"linux": {
+			"target": [
+				{
+					"target": "AppImage",
+					"arch": ["x64"]
+				},
+				{
+					"target": "deb",
+					"arch": ["x64"]
+				},
+				{
+					"target": "rpm",
+					"arch": ["x64"]
+				}
+			],
+			"icon": "./resources/icon.png",
+			"category": "Office",
+			"artifactName": "Dione-${version}-Installer-Linux.${ext}"
+		},
+		"nsis": {
+			"oneClick": false,
+			"installerIcon": "./resources/icon.ico",
+			"uninstallerIcon": "./resources/icon.ico",
+			"createDesktopShortcut": true,
+			"createStartMenuShortcut": true,
+			"shortcutName": "Dione",
+			"allowToChangeInstallationDirectory": true,
+			"differentialPackage": false,
+			"uninstallDisplayName": "${productName}"
+		},
+		"msi": {
+			"oneClick": false,
+			"createDesktopShortcut": true,
+			"createStartMenuShortcut": true,
+			"shortcutName": "Dione"
+		},
+		"files": [
+			"out/**/*",
+			"resources/**/*",
+			"node_modules/**/*",
+			"package.json",
+			"!node_modules/@tailwindcss/oxide-*/**"
+		],
+		"extraResources": [],
+		"directories": {
+			"buildResources": "resources"
+		},
+		"publish": [
+			{
+				"provider": "github",
+				"owner": "dioneapp",
+				"repo": "dioneapp",
+				"releaseType": "release"
+			}
+		]
+	},
+	"dependencies": {
+		"@dnd-kit/core": "^6.3.1",
+		"@dnd-kit/modifiers": "^9.0.0",
+		"@dnd-kit/sortable": "^10.0.0",
+		"@dnd-kit/utilities": "^3.2.2",
+		"@electron-toolkit/preload": "^3.0.2",
+		"@electron-toolkit/utils": "^4.0.0",
+		"@lydell/node-pty": "^1.1.0",
+		"@monaco-editor/react": "^4.7.0",
+		"@supabase/supabase-js": "^2.109.0",
+		"@xterm/addon-fit": "^0.11.0",
+		"@xterm/xterm": "^6.0.0",
+		"class-variance-authority": "^0.7.1",
+		"cors": "^2.8.5",
+		"dotenv": "^17.2.3",
+		"electron-store": "^10.1.0",
+		"electron-updater": "^6.8.9",
+		"express": "^5.2.1",
+		"file-type": "^21.3.4",
+		"framer-motion": "^12.23.25",
+		"get-port": "^7.1.0",
+		"isomorphic-git": "^1.36.0",
+		"localtunnel": "^2.0.2",
+		"lucide-react": "^0.523.0",
+		"monaco-editor": "^0.53.0",
+		"nanoid": "^5.1.6",
+		"ollama": "^0.6.3",
+		"pidtree": "^0.6.0",
+		"qrcode.react": "^4.2.0",
+		"react": "^19.2.1",
+		"react-dom": "^19.2.1",
+		"react-markdown": "^10.1.0",
+		"react-syntax-highlighter": "^16.1.0",
+		"rehype-raw": "^7.0.0",
+		"rehype-sanitize": "^6.0.0",
+		"remark-gfm": "^4.0.1",
+		"remark-github-blockquote-alert": "^2.0.0",
+		"semver": "^7.7.3",
+		"simple-discord-rpc": "^1.0.1",
+		"socket.io": "^4.8.3",
+		"socket.io-client": "^4.8.3",
+		"systeminformation": "^5.31.7",
+		"winston": "^3.19.0",
+		"wouter": "^3.10.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@electron-toolkit/tsconfig": "^1.0.1",
+		"@google/genai": "^1.52.0",
+		"@tailwindcss/typography": "^0.5.19",
+		"@tailwindcss/vite": "^4.1.17",
+		"@types/localtunnel": "^2.0.4",
+		"@types/node": "^22.19.2",
+		"@types/react": "^19.2.7",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^4.7.0",
+		"electron": "^41.7.1",
+		"electron-builder": "^26.15.3",
+		"electron-vite": "^3.1.0",
+		"icon-gen": "^5.0.0",
+		"sharp": "^0.34.5",
+		"tailwindcss": "^4.1.17",
+		"tsx": "^4.21.0",
+		"typescript": "^5.9.3",
+		"vite": "^6.4.3"
+	},
+	"engines": {
+		"node": ">=22.12.0"
+	}
 }

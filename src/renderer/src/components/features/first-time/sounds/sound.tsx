@@ -19,10 +19,10 @@ const ExecuteSound = ({ firstLaunch }: { firstLaunch: string }) => {
 
 		const audio = audioRef.current;
 
-		if (firstLaunch === "true") {
-			audio!.muted = isMuted;
-			audio!.volume = isMuted ? 0 : 0.2;
-			audio!.play().catch((e) => console.warn("Audio play failed:", e));
+		if (firstLaunch === "true" && audio) {
+			audio.muted = isMuted;
+			audio.volume = isMuted ? 0 : 0.2;
+			audio.play().catch((e) => console.warn("Audio play failed:", e));
 		}
 
 		return () => {
@@ -58,6 +58,7 @@ const ExecuteSound = ({ firstLaunch }: { firstLaunch: string }) => {
 		<>
 			{firstLaunch === "true" && (
 				<button
+					type="button"
 					onClick={toggleMute}
 					className="absolute bottom-4 right-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors duration-200"
 					style={{ zIndex: 9999 }}

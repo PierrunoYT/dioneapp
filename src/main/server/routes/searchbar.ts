@@ -47,7 +47,7 @@ router.get("/name/:name", async (req, res) => {
 
 	try {
 		const url = new URL(
-			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts`,
+			"https://api-getdione-app.deeivihh.workers.dev/v1/scripts",
 		);
 		url.searchParams.set("q", name);
 		if (orderBy) url.searchParams.set("order", orderBy);

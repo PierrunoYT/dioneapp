@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execSync } from "node:child_process";
 import os from "node:os";
 import logger from "@/server/utils/logger";
 
@@ -8,7 +8,7 @@ function queryRegistry(path: string, value: string): string | null {
 			encoding: "utf8",
 		});
 		const match = output.match(new RegExp(`${value}\\s+REG_\\w+\\s+(.+)`));
-		if (match && match[1]) return match[1].trim();
+		if (match?.[1]) return match[1].trim();
 	} catch (e) {
 		return null;
 	}
@@ -26,7 +26,7 @@ export function refreshPathFromSystem() {
 
 	const userPath = queryRegistry("HKCU\\Environment", "PATH") || "";
 
-	const combinedPath = systemPath + (userPath ? ";" + userPath : "");
+	const combinedPath = systemPath + (userPath ? `;${userPath}` : "");
 
 	if (combinedPath) {
 		process.env.PATH = combinedPath;

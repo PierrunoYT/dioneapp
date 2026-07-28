@@ -3,9 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { en } from "../src/renderer/src/translations/languages/en";
 
-const localeDirectory = path.resolve(
-	"src/renderer/src/translations/languages",
-);
+const localeDirectory = path.resolve("src/renderer/src/translations/languages");
 
 function validateLocale(
 	locale: unknown,
@@ -52,11 +50,11 @@ async function main(): Promise<void> {
 
 	if (errors.length > 0) {
 		throw new Error(errors.sort().join("\n"));
-}
+	}
 
-console.log(
-	`Validated ${files.length} locales; missing English keys use the runtime English fallback.`,
-);
+	console.log(
+		`Validated ${files.length} locales; missing English keys use the runtime English fallback.`,
+	);
 }
 
 main().catch((error) => {

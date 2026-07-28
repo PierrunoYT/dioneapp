@@ -44,8 +44,7 @@ export default function LogsComponent({
 					lastContentLength={lastContentLength}
 					currentCommand={currentCommand}
 				/>
-				{progress &&
-					progress[appId]?.steps &&
+				{progress?.[appId]?.steps &&
 					progress[appId].steps.length > 1 &&
 					executing !== "start" && (
 						<div className="mb-4">

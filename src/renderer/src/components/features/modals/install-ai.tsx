@@ -133,7 +133,7 @@ export function InstallAIModal({
 									<ProgressBar
 										mode="indeterminate"
 										label={
-											logs["ollama"]?.[logs["ollama"].length - 1] ||
+											logs.ollama?.[logs.ollama.length - 1] ||
 											t("installAI.step3.startingDownload")
 										}
 									/>

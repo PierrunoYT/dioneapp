@@ -39,19 +39,16 @@ export default function Models({
 		getAvailableModels();
 
 		// connect to socket
-		if (!sockets["ollama"]) {
+		if (!sockets.ollama) {
 			console.log("[Models] Connecting to ollama socket...");
 			connectApp("ollama", true);
 		} else {
-			console.log(
-				"[Models] Ollama socket already connected:",
-				sockets["ollama"],
-			);
+			console.log("[Models] Ollama socket already connected:", sockets.ollama);
 		}
 	}, []);
 
 	useEffect(() => {
-		const socketData = sockets["ollama"];
+		const socketData = sockets.ollama;
 		if (!socketData || !socketData.socket) {
 			console.log("[Models] No ollama socket available yet");
 			return;

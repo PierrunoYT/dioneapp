@@ -7,9 +7,9 @@ module.exports = {
 	theme: {
 		extend: {
 			colors: {
-				background: 'var(--theme-background)',
-				accent: 'var(--theme-accent)',
-				'accent-secondary': 'var(--theme-accent-secondary)',
+				background: "var(--theme-background)",
+				accent: "var(--theme-accent)",
+				"accent-secondary": "var(--theme-accent-secondary)",
 			},
 		},
 	},

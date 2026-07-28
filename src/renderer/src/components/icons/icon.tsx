@@ -43,6 +43,7 @@ const Icon: React.FC<IconProps> = ({ name, className = "" }) => {
 	return (
 		<span
 			className={className}
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: SVGs are bundled first-party assets.
 			dangerouslySetInnerHTML={{ __html: modifiedSvgContent }} // probably should change this later for security reasons
 		/>
 	);

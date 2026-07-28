@@ -47,12 +47,14 @@ export default function NotSupported({
 					</div>
 					<div className="flex gap-2 w-full ml-auto mt-auto justify-end items-end px-6 py-4">
 						<button
+							type="button"
 							onClick={() => onClose(true)}
 							className="bg-neutral-200/10 hover:bg-neutral-300/20 transition-all duration-300 cursor-pointer text-neutral-300 font-medium text-sm  py-1 w-44 rounded-xl"
 						>
 							Continue anyway
 						</button>
 						<button
+							type="button"
 							onClick={() => onClose(false)}
 							className="bg-neutral-200 hover:bg-neutral-300 transition-all duration-300 cursor-pointer text-black text-sm font-semibold py-1 w-24 rounded-xl"
 						>

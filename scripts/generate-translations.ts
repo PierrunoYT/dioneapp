@@ -1,6 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { GoogleGenAI } from "@google/genai";
-import * as fs from "fs";
-import * as path from "path";
 
 const apiKey = process.argv[2] || process.env.GEMINI_API_KEY_1;
 const apiKey2 = process.argv[3] || process.env.GEMINI_API_KEY_2;
@@ -22,7 +22,7 @@ function switchToNextKey(): boolean {
 		console.error("❌ No more API keys available");
 		return false;
 	}
-	
+
 	currentKeyIndex++;
 	const nextKey = availableKeys[currentKeyIndex - 1];
 	console.log(`⚠️  Quota exceeded. Switching to API key #${currentKeyIndex}...`);
@@ -56,7 +56,11 @@ const languages: Record<string, string> = {
 const baseFilePath = path.join("src/renderer/src/translations/languages/en.ts");
 const baseContent = fs.readFileSync(baseFilePath, "utf-8");
 
-async function translateFile(langCode: string, langName: string, retryWithFallback = true): Promise<void> {
+async function translateFile(
+	langCode: string,
+	langName: string,
+	retryWithFallback = true,
+): Promise<void> {
 	try {
 		console.log(`🔄 Translating to ${langName} (${langCode})...`);
 		const response = await ai.models.generateContent({
@@ -82,20 +86,22 @@ ${baseContent}
 		if (!translatedText) {
 			throw new Error("No translation received from AI");
 		}
-		const outputPath = path.join(`src/renderer/src/translations/languages/${langCode}.ts`);
+		const outputPath = path.join(
+			`src/renderer/src/translations/languages/${langCode}.ts`,
+		);
 		fs.writeFileSync(outputPath, translatedText, "utf-8");
 		console.log(`✅ File generated: ${outputPath}`);
 	} catch (error: any) {
 		if (error?.status === 429 && retryWithFallback) {
 			console.error(`⚠️  Quota exceeded for ${langCode}`);
-			
+
 			if (switchToNextKey()) {
 				console.log(`🔄 Retrying ${langCode} with key #${currentKeyIndex}...`);
 				await translateFile(langCode, langName, true);
 				return;
 			}
 		}
-		
+
 		console.error(`❌ Error translating ${langCode}:`, error);
 		throw error;
 	}
@@ -107,10 +113,12 @@ async function main() {
 	console.log(
 		`🌍 Languages to translate: ${Object.keys(languages).join(", ")}`,
 	);
-	
+
 	console.log(`🔑 Available API keys: ${availableKeys.length}`);
 	if (availableKeys.length > 1) {
-		console.log(`   - Primary key + ${availableKeys.length - 1} fallback key(s)`);
+		console.log(
+			`   - Primary key + ${availableKeys.length - 1} fallback key(s)`,
+		);
 	}
 
 	const startTime = Date.now();
@@ -134,7 +142,9 @@ async function main() {
 	console.log(`✅ Successful: ${successCount}`);
 	console.log(`❌ Failed: ${errorCount}`);
 	console.log(`⏱️ Duration: ${duration}s`);
-	console.log(`🔑 Final API key used: #${currentKeyIndex} of ${availableKeys.length}`);
+	console.log(
+		`🔑 Final API key used: #${currentKeyIndex} of ${availableKeys.length}`,
+	);
 
 	if (errorCount > 0) {
 		console.error("\nSome translations failed. Please check the errors above.");

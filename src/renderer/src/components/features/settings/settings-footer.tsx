@@ -23,9 +23,7 @@ export default function SettingsFooter({
 
 	return (
 		<>
-			<div
-				className={`h-0.5 rounded-xl w-full from-transparent via-white/40 to-transparent bg-linear-to-l mt-6`}
-			/>
+			<div className="h-0.5 rounded-xl w-full from-transparent via-white/40 to-transparent bg-linear-to-l mt-6" />
 			<div className="flex justify-between w-full text-[10px] text-neutral-500  ">
 				<div className="mt-auto">
 					<a

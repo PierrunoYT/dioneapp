@@ -1,5 +1,5 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { readConfig } from "@/config";
 import { getOS } from "@/server/scripts/dependencies/utils/system";
 import logger from "@/server/utils/logger";
@@ -48,7 +48,7 @@ export function addValue(key: string, value: string) {
 		newLines.push(`${key}=${value}`);
 	}
 
-	fs.writeFileSync(ENVIRONMENT, newLines.join("\n") + "\n", "utf8");
+	fs.writeFileSync(ENVIRONMENT, `${newLines.join("\n")}\n`, "utf8");
 }
 
 export function removeKey(key: string) {
@@ -107,7 +107,7 @@ export function removeValue(valueToRemove: string, key: string) {
 	});
 
 	if (updated) {
-		fs.writeFileSync(ENVIRONMENT, newLines.join("\n") + "\n", "utf8");
+		fs.writeFileSync(ENVIRONMENT, `${newLines.join("\n")}\n`, "utf8");
 	}
 }
 
@@ -213,19 +213,19 @@ export function initDefaultEnv() {
 				nvidiaPaths.map((p) => path.join(p, "nvidia-smi.exe").toLowerCase()),
 			),
 		];
-		uniqueNvidiaPaths.forEach((nvidiaPath) => {
+		for (const nvidiaPath of uniqueNvidiaPaths) {
 			const originalPath = nvidiaPaths.find(
 				(p) => path.join(p, "nvidia-smi.exe").toLowerCase() === nvidiaPath,
 			);
 			if (originalPath) {
 				const fullPath = path.join(originalPath, "nvidia-smi.exe");
-				logger.info("Found NVIDIA-SMI at: " + fullPath);
+				logger.info(`Found NVIDIA-SMI at: ${fullPath}`);
 				basicEnv.push(fullPath);
 			}
-		});
+		}
 
 		// check if have basics paths
-		basicEnv.forEach((basicPath) => {
+		for (const basicPath of basicEnv) {
 			const currentPath = currentEnv.PATH || "";
 			const pathParts = currentPath.split(separator).map((p) => p.trim());
 
@@ -238,7 +238,7 @@ export function initDefaultEnv() {
 			if (!pathExists) {
 				addValue("PATH", basicPath);
 			}
-		});
+		}
 
 		if (!currentEnv.ComSpec) {
 			addValue("ComSpec", "C:\\Windows\\System32\\cmd.exe");
@@ -280,14 +280,14 @@ export function initDefaultEnv() {
 		const basicPaths = basicPath.split(":");
 
 		// check if have basics paths
-		basicPaths.forEach((basicPathPart) => {
+		for (const basicPathPart of basicPaths) {
 			const currentPath = currentEnv.PATH || "";
 			const pathParts = currentPath.split(separator).map((p) => p.trim());
 
 			if (!pathParts.includes(basicPathPart)) {
 				addValue("PATH", basicPathPart);
 			}
-		});
+		}
 
 		if (!currentEnv.HF_HUB_CACHE) {
 			addValue("HF_HUB_CACHE", path.join(cacheFolder));

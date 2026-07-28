@@ -54,7 +54,7 @@ export const useCustomDrag = ({
 		try {
 			const positions: AppSlotPosition[] = newApps
 				.map((app, index) => {
-					if (app && app.id) {
+					if (app?.id) {
 						return { id: app.id, slotIndex: index };
 					}
 					return null;
@@ -73,16 +73,16 @@ export const useCustomDrag = ({
 			if (savedPositions.length === 0) return appsToOrder;
 
 			const orderedApps = new Array(maxApps).fill(null);
-			const validApps = appsToOrder.filter((app) => app && app.id);
+			const validApps = appsToOrder.filter((app) => app?.id);
 			const appMap = new Map(validApps.map((app) => [app.id, app]));
 
-			savedPositions.forEach(({ id, slotIndex }) => {
+			for (const { id, slotIndex } of savedPositions) {
 				const app = appMap.get(id);
 				if (app && slotIndex >= 0 && slotIndex < maxApps) {
 					orderedApps[slotIndex] = app;
 					appMap.delete(id);
 				}
-			});
+			}
 
 			let nextEmptySlot = 0;
 			for (const app of appMap.values()) {

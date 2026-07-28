@@ -116,7 +116,7 @@ export async function checkDependencies(dioneConfigPath: string): Promise<{
 			missing.push({
 				name: depName,
 				installed: false,
-				reason: `error`,
+				reason: "error",
 			});
 		}
 	}
@@ -158,17 +158,16 @@ export async function installDependency(
 		if (result.success) {
 			logger.info(`Dependency ${depName} installed successfully`);
 			return { success: true };
-		} else {
-			logger.error(`Failed to install dependency ${depName}`);
-			return { success: false };
 		}
+		logger.error(`Failed to install dependency ${depName}`);
+		return { success: false };
 	} catch (error) {
 		logger.error(`Error installing dependency ${depName}:`, error);
 		io.to(id).emit("installDep", {
 			type: "error",
 			content: `Error installing ${depName}: ${error}`,
 		});
-		return { success: false, reason: `error` };
+		return { success: false, reason: "error" };
 	}
 }
 
@@ -223,21 +222,21 @@ export async function inUseDependencies(
 	}
 
 	const inUse: string[] = [];
-	Object.keys(dependencies).forEach((depName) => {
+	for (const depName of Object.keys(dependencies)) {
 		const entry = dependencyRegistry[depName];
 		if (entry) {
 			if (getOS() === "linux" || getOS() === "macos") {
 				if (depName === "build_tools") {
-					return;
+					continue;
 				}
 				if (depName === "git") {
-					return;
+					continue;
 				}
 			}
 
 			inUse.push(depName);
 		}
-	});
+	}
 
 	const needEnv = JSON.stringify(dioneConfig).includes("env");
 	const envType =

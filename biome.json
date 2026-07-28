@@ -1,13 +1,19 @@
 {
 	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
 	"vcs": {
-		"enabled": false,
+		"enabled": true,
 		"clientKind": "git",
-		"useIgnoreFile": false
+		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false,
-		"ignore": []
+		"ignoreUnknown": true,
+		"ignore": [
+			"AUDIT_REPORT.md",
+			"THIRD_PARTY_NOTICES.md",
+			"package-lock.json",
+			"resources/**",
+			"src/renderer/src/translations/languages/**"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -21,7 +27,8 @@
 		"rules": {
 			"a11y": {
 				"noLabelWithoutControl": "off",
-				"useKeyWithClickEvents": "off"
+				"useKeyWithClickEvents": "off",
+				"useSemanticElements": "off"
 			},
 			"recommended": true,
 			"suspicious": {

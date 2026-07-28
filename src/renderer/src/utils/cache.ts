@@ -8,6 +8,7 @@ interface CacheEntry<T> {
 	timestamp: number;
 }
 
+// biome-ignore lint/complexity/noStaticOnlyClass: Preserve the existing public cache API.
 export class FeedCache {
 	private static getKey(endpoint: string): string {
 		return `${CACHE_PREFIX}${endpoint.replace(/\//g, "_")}`;
@@ -19,7 +20,7 @@ export class FeedCache {
 				data,
 				timestamp: Date.now(),
 			};
-			localStorage.setItem(this.getKey(endpoint), JSON.stringify(entry));
+			localStorage.setItem(FeedCache.getKey(endpoint), JSON.stringify(entry));
 		} catch (error) {
 			console.error("Failed to cache data:", error);
 		}
@@ -27,13 +28,13 @@ export class FeedCache {
 
 	static get(endpoint: string): Script[] | null {
 		try {
-			const cached = localStorage.getItem(this.getKey(endpoint));
+			const cached = localStorage.getItem(FeedCache.getKey(endpoint));
 			if (!cached) return null;
 
 			const entry: CacheEntry<Script[]> = JSON.parse(cached);
 
 			if (Date.now() - entry.timestamp > CACHE_EXPIRY) {
-				this.clear(endpoint);
+				FeedCache.clear(endpoint);
 				return null;
 			}
 
@@ -46,7 +47,7 @@ export class FeedCache {
 
 	static clear(endpoint: string): void {
 		try {
-			localStorage.removeItem(this.getKey(endpoint));
+			localStorage.removeItem(FeedCache.getKey(endpoint));
 		} catch (error) {
 			console.error("Failed to clear cache:", error);
 		}
@@ -67,7 +68,7 @@ export class FeedCache {
 
 	static getCacheAge(endpoint: string): number | null {
 		try {
-			const cached = localStorage.getItem(this.getKey(endpoint));
+			const cached = localStorage.getItem(FeedCache.getKey(endpoint));
 			if (!cached) return null;
 
 			const entry: CacheEntry<Script[]> = JSON.parse(cached);
