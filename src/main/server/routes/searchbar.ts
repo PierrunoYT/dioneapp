@@ -5,6 +5,39 @@ import express from "express";
 const router = express.Router();
 router.use(express.json());
 
+// Tag-filtered search without the database. The Dione catalog API exposes the
+// same name and tag filters, so a build with the database disabled returns the
+// same shape of results instead of failing.
+async function searchCatalogByType(
+	name: string,
+	type: string,
+	orderBy: string | null,
+	orderType: string | null,
+) {
+	const url = new URL(
+		"https://api-getdione-app.deeivihh.workers.dev/v1/scripts",
+	);
+	url.searchParams.set("q", name);
+	url.searchParams.set("tags", type);
+	if (orderBy) url.searchParams.set("order", orderBy);
+	if (orderType) url.searchParams.set("order_type", orderType);
+
+	const response = await fetch(url.toString(), {
+		headers: {
+			...(process.env.DIONE_API_KEY
+				? { Authorization: `Bearer ${process.env.DIONE_API_KEY}` }
+				: {}),
+		},
+	});
+	if (response.status !== 200) {
+		throw new Error(`[${response.status}] ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	if (!data || !Array.isArray(data)) return [];
+	return data;
+}
+
 router.get("/type/:name/:type", async (req, res) => {
 	const name = req.params.name;
 	const type = req.params.type;
@@ -13,8 +46,17 @@ router.get("/type/:name/:type", async (req, res) => {
 	const orderType = (req.query.order_type as string) || "asc";
 
 	if (!supabase) {
-		logger.error("Supabase client is not initialized");
-		return res.status(500).json({ error: "Database connection not available" });
+		try {
+			const scripts = await searchCatalogByType(name, type, orderBy, orderType);
+			return res.send(scripts);
+		} catch (error: any) {
+			logger.error(
+				`Unable to search the catalog for '${name}': ${error?.message || error}`,
+			);
+			return res
+				.status(500)
+				.send("An error occurred while processing your request.");
+		}
 	}
 	try {
 		const { data, error } = await supabase

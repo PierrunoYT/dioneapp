@@ -115,7 +115,8 @@ function isValidUrl(url: string): boolean {
 export async function shortenUrl(url: string): Promise<string | null> {
 	try {
 		if (!supabase) {
-			logger.warn("Supabase not configured, skipping URL shortening");
+			// Callers fall back to the full tunnel URL when this returns null.
+			logger.info("URL shortening is disabled, sharing the full tunnel URL");
 			return null;
 		}
 		if (!isValidUrl(url)) {

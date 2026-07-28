@@ -194,6 +194,33 @@ The audit's post-remediation health score is **94/100**, up from a **24/100** ba
 
 ### Changed
 
+- **Account, login, and database-backed features are now disabled by default.** Two build
+  switches gate them, both defaulting to off, so an unconfigured build behaves like one
+  with the features deliberately turned off:
+  - `VITE_PUBLIC_ACCOUNTS_ENABLED` gates the account surface. While false, `auth` and
+    `refresh` tokens carried in a `dione://` deep link are ignored and logged rather than
+    forwarded to the renderer. This path was already inert — neither channel was exposed
+    in the preload bridge and no renderer code subscribed — so nothing regressed; the
+    tokens now simply stop being sent. The misleading `alert("Not found any data for
+    login…")` on a malformed deep link was removed, since a deep link with no URL has
+    nothing to do with logging in.
+  - `VITE_PUBLIC_DATABASE_ENABLED` gates the Supabase client, which is no longer created
+    at all when false. The three features that used it degrade instead of failing:
+    tag-filtered search (`/search/type/:name/:type`) falls back to the same Dione catalog
+    API the name-only route already used and returns the same result shape; shared tunnel
+    URLs return unshortened, which callers already handled since `shortenUrl()` has always
+    been able to return `null`; report submission is refused up front with `503
+    {"disabled": true}` before consent is examined, rather than returning a generic
+    connection error after collecting one.
+
+  No code was deleted — flipping either switch to `true` restores the previous behaviour.
+- Supabase sessions are no longer persisted or auto-refreshed (`persistSession` and
+  `autoRefreshToken` are now false). Dione has no user accounts, so nothing ever signed in
+  and there was never a session to keep alive; the anonymous key remains the only
+  credential and access is still enforced with RLS.
+- `getScripts()` no longer imports the Supabase client. It checked whether the client
+  existed and logged a warning, then never used it — the script catalog has been fetched
+  over HTTP since remote installs became fail-closed.
 - React Router replaced by a `wouter`-based hash-router compatibility layer (H-23).
 - `window.dione` is now the only renderer bridge; `window.electron` and `window.api` are
   gone (C-03).

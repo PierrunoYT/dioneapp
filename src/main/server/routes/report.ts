@@ -15,13 +15,17 @@ router.post("/preview", (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-	if (req.body?.consent !== true) {
-		return res.status(400).json({ error: "Report consent is required" });
+	// Refused before consent is examined: with no database there is nowhere to
+	// store a report, so there is no reason to collect one.
+	if (!supabase) {
+		logger.info("Report submission skipped: reporting backend is disabled");
+		return res
+			.status(503)
+			.json({ error: "Reporting is disabled", disabled: true });
 	}
 
-	if (!supabase) {
-		logger.error("Supabase client is not initialized");
-		return res.status(500).json({ error: "Database connection not available" });
+	if (req.body?.consent !== true) {
+		return res.status(400).json({ error: "Report consent is required" });
 	}
 
 	try {

@@ -14,7 +14,6 @@ import {
 	resolveCanonicalAppPath,
 	validateAppId,
 } from "@/server/scripts/utils/paths";
-import { supabase } from "@/server/utils/database";
 import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
 
@@ -27,11 +26,6 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 	const catalogUrl = import.meta.env.VITE_PUBLIC_DIONE_CATALOG_URL;
 	if (!catalogUrl) {
 		throw new Error("Remote installs are enabled without a catalog URL");
-	}
-	if (!supabase) {
-		logger.warn(
-			"Supabase not initialized (no .env). Continuing without DB features.",
-		);
 	}
 	try {
 		const url = new URL(catalogUrl);

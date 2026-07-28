@@ -23,6 +23,7 @@ import { createLocalApproval } from "@/server/scripts/trust";
 import { resolveCanonicalAppPath } from "@/server/scripts/utils/paths";
 import { createSocketTicket, getBackendToken } from "@/server/security";
 import { start as startServer, stop as stopServer } from "@/server/server";
+import { accountsEnabled } from "@/server/utils/features";
 import logger, { getLogs } from "@/server/utils/logger";
 import {
 	exportDebugLogs,
@@ -478,7 +479,6 @@ function createWindow() {
 	const handleDeepLink = (url: string | undefined) => {
 		try {
 			if (!url) {
-				alert("Not found any data for login, please report this error.");
 				logger.error("No url received");
 				return;
 			}
@@ -486,18 +486,26 @@ function createWindow() {
 			const queryString = `?${url.replace(/^dione:\/\//, "")}`;
 			const params = new URLSearchParams(queryString);
 
-			const authToken = params.get("auth");
-			if (authToken) {
-				mainWindow.webContents.send("auth-token", authToken);
-			} else {
-				logger.error("Not found auth token in deep link");
-			}
+			// Accounts are disabled, so auth and refresh tokens in a deep link are
+			// ignored rather than forwarded to the renderer.
+			if (accountsEnabled) {
+				const authToken = params.get("auth");
+				if (authToken) {
+					mainWindow.webContents.send("auth-token", authToken);
+				} else {
+					logger.error("Not found auth token in deep link");
+				}
 
-			const refreshToken = params.get("refresh");
-			if (refreshToken) {
-				mainWindow.webContents.send("refresh-token", refreshToken);
-			} else {
-				logger.error("Not found refresh token in deep link");
+				const refreshToken = params.get("refresh");
+				if (refreshToken) {
+					mainWindow.webContents.send("refresh-token", refreshToken);
+				} else {
+					logger.error("Not found refresh token in deep link");
+				}
+			} else if (params.has("auth") || params.has("refresh")) {
+				logger.warn(
+					"Ignoring auth tokens in deep link: account features are disabled",
+				);
 			}
 
 			const downloadUrl = params.get("download");
