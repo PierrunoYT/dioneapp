@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { clipboard, contextBridge, ipcRenderer } from "electron";
 
 const on = <T>(channel: string, callback: (value: T) => void) => {
@@ -22,7 +23,19 @@ const dione = Object.freeze({
 		operation: string,
 		params: Record<string, string>,
 		init?: { headers?: Record<string, string>; body?: string },
-	) => ipcRenderer.invoke("backend:call", operation, params, init),
+	) => {
+		const requestId = randomUUID();
+		return Object.freeze({
+			response: ipcRenderer.invoke(
+				"backend:call",
+				requestId,
+				operation,
+				params,
+				init,
+			),
+			cancel: () => ipcRenderer.send("backend:cancel", requestId),
+		});
+	},
 	getSocketCredentials: (appId: string) =>
 		ipcRenderer.invoke("backend:get-socket-credentials", appId),
 	onBackendPortChanged: (callback: (port: number) => void) =>

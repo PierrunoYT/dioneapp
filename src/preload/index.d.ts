@@ -25,11 +25,14 @@ interface DioneAPI {
 		operation: string,
 		params: Record<string, string>,
 		init?: { headers?: Record<string, string>; body?: string },
-	): Promise<{
-		status: number;
-		statusText: string;
-		headers: [string, string][];
-		body: string;
+	): Readonly<{
+		response: Promise<{
+			status: number;
+			statusText: string;
+			headers: [string, string][];
+			body: string;
+		}>;
+		cancel(): void;
 	}>;
 	getSocketCredentials(
 		appId: string,

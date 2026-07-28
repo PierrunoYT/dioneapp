@@ -148,6 +148,16 @@ let port: number;
 const pendingDeepLinks: string[] = [];
 let dispatchDeepLink: ((url: string | undefined) => void) | undefined;
 let rendererReadyForDeepLinks = false;
+const activeBackendCalls = new Map<
+	string,
+	{ controller: AbortController; sender: Electron.WebContents }
+>();
+
+const abortBackendCalls = (sender: Electron.WebContents) => {
+	for (const call of activeBackendCalls.values()) {
+		if (call.sender === sender) call.controller.abort();
+	}
+};
 
 const isTrustedRenderer = (
 	event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
@@ -396,6 +406,11 @@ function createWindow() {
 	// Remove default menu from the window
 	mainWindow.removeMenu();
 	mainWindow.center();
+	const renderer = mainWindow.webContents;
+	const abortRendererBackendCalls = () => abortBackendCalls(renderer);
+	renderer.on("did-navigate", abortRendererBackendCalls);
+	renderer.on("render-process-gone", abortRendererBackendCalls);
+	renderer.on("destroyed", abortRendererBackendCalls);
 	mainWindow.webContents.once("did-fail-load", () => {
 		logger.error("Failed to load the main window content.");
 		dialog.showErrorBox("Error", "Failed to load the main window content.");
@@ -676,14 +691,26 @@ app.whenReady().then(async () => {
 	});
 	secureHandle(
 		"backend:call",
-		async (_event, operation: unknown, params: any, init: any) => {
+		async (
+			event,
+			requestId: unknown,
+			operation: unknown,
+			params: any,
+			init: any,
+		) => {
 			if (
+				typeof requestId !== "string" ||
+				!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+					requestId,
+				) ||
 				typeof operation !== "string" ||
 				!params ||
 				typeof params !== "object" ||
 				Array.isArray(params)
 			)
 				throw new Error("Invalid backend operation");
+			if (activeBackendCalls.has(requestId))
+				throw new Error("Duplicate backend request ID");
 			const value = (name: string, max = 512) => {
 				const item = params[name];
 				if (
@@ -891,25 +918,39 @@ app.whenReady().then(async () => {
 				init?.headers?.["content-type"] || init?.headers?.["Content-Type"];
 			if (contentType !== undefined && typeof contentType !== "string")
 				throw new Error("Invalid backend Content-Type");
-			const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, {
-				method,
-				headers: {
-					Authorization: `Bearer ${getBackendToken()}`,
-					...(contentType ? { "Content-Type": contentType } : {}),
-				},
-				body: method === "GET" ? undefined : init?.body,
-			});
-			const body = await response.text();
-			if (body.length > 16_000_000)
-				throw new Error("Backend response is too large");
-			return {
-				status: response.status,
-				statusText: response.statusText,
-				headers: [...response.headers.entries()],
-				body,
-			};
+			const controller = new AbortController();
+			const call = { controller, sender: event.sender };
+			activeBackendCalls.set(requestId, call);
+			try {
+				const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${getBackendToken()}`,
+						...(contentType ? { "Content-Type": contentType } : {}),
+					},
+					body: method === "GET" ? undefined : init?.body,
+					signal: controller.signal,
+				});
+				const body = await response.text();
+				if (body.length > 16_000_000)
+					throw new Error("Backend response is too large");
+				return {
+					status: response.status,
+					statusText: response.statusText,
+					headers: [...response.headers.entries()],
+					body,
+				};
+			} finally {
+				if (activeBackendCalls.get(requestId) === call)
+					activeBackendCalls.delete(requestId);
+			}
 		},
 	);
+	secureOn("backend:cancel", (event, requestId: unknown) => {
+		if (typeof requestId !== "string") return;
+		const call = activeBackendCalls.get(requestId);
+		if (call?.sender === event.sender) call.controller.abort();
+	});
 
 	secureOn("terminal:resize", (_event, payload) => {
 		const { id, cols, rows } = payload ?? {};

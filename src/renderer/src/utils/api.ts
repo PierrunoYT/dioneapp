@@ -176,7 +176,9 @@ export const apiFetch = async (
 	init?: RequestInit,
 	opts?: FetchOptions,
 ): Promise<Response> => {
+	init?.signal?.throwIfAborted();
 	await getBackendPort({ forceRefresh: opts?.forceRefreshPort });
+	init?.signal?.throwIfAborted();
 	const value = path instanceof URL ? path.toString() : path;
 	if (isAbsoluteUrl(value))
 		throw new Error("Backend requests must use relative paths");
@@ -185,15 +187,28 @@ export const apiFetch = async (
 		(init?.method || "GET").toUpperCase(),
 	);
 	const headers = new Headers(init?.headers);
-	const result = await window.dione.callBackend(call.operation, call.params, {
+	const backendCall = window.dione.callBackend(call.operation, call.params, {
 		headers: Object.fromEntries(headers.entries()),
 		body: typeof init?.body === "string" ? init.body : undefined,
 	});
-	return new Response(result.body, {
-		status: result.status,
-		statusText: result.statusText,
-		headers: result.headers,
-	});
+	const cancel = backendCall.cancel;
+	init?.signal?.addEventListener("abort", cancel, { once: true });
+	try {
+		if (init?.signal?.aborted) cancel();
+		init?.signal?.throwIfAborted();
+		const result = await backendCall.response;
+		init?.signal?.throwIfAborted();
+		return new Response(result.body, {
+			status: result.status,
+			statusText: result.statusText,
+			headers: result.headers,
+		});
+	} catch (error) {
+		if (init?.signal?.aborted) throw init.signal.reason;
+		throw error;
+	} finally {
+		init?.signal?.removeEventListener("abort", cancel);
+	}
 };
 
 export const apiRequest = async (
