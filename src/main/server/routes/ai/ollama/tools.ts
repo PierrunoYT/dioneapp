@@ -6,6 +6,7 @@ import {
 	resolveCanonicalAppPath,
 	validateAppId,
 } from "@/server/scripts/utils/paths";
+import { catalogApiEnabled } from "@/server/utils/features";
 import logger from "@/server/utils/logger";
 
 const MAX_TOOL_FILE_BYTES = 32 * 1024;
@@ -189,6 +190,12 @@ export async function get_installed_apps(io: any, signal?: AbortSignal) {
 
 export async function get_latest_apps(io: any, signal?: AbortSignal) {
 	ensureNotAborted(signal);
+	// Browsing the catalog needs the hosted API. With it disabled the tool
+	// returns nothing so the assistant answers from local apps instead.
+	if (!catalogApiEnabled) {
+		logger.info("Catalog API disabled, get_latest_apps returning no results");
+		return [];
+	}
 	io.emit("ollama:using-tool", {
 		name: "get_latest_apps",
 		message: "Getting latest apps",
@@ -267,6 +274,10 @@ export async function get_app_by_name(
 	signal?: AbortSignal,
 ) {
 	ensureNotAborted(signal);
+	if (!catalogApiEnabled) {
+		logger.info("Catalog API disabled, get_app_by_name returning no results");
+		return [];
+	}
 	io.emit("ollama:using-tool", {
 		name: "get_app_by_name",
 		message: "Reading about an app",

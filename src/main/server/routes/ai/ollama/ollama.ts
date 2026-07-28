@@ -14,6 +14,7 @@ import {
 	registerOwnedChildProcess,
 	stopActiveProcess,
 } from "@/server/scripts/process";
+import { catalogApiEnabled } from "@/server/utils/features";
 import logger from "@/server/utils/logger";
 import { app } from "electron";
 import express from "express";
@@ -244,6 +245,26 @@ export function createOllamaRouter(io: SocketIOServer) {
 	});
 
 	OllamaRouter.get("/available-models", async (_req, res) => {
+		// The suggested-model list comes from the hosted catalog. With it disabled
+		// we still offer the built-in safe defaults so local AI keeps working:
+		// supportedModels also gates which models may be pulled and run, so it
+		// must never be emptied here.
+		if (!catalogApiEnabled) {
+			logger.info("Catalog API disabled, offering the built-in model list");
+			supportedModels = new Set(SAFE_DEFAULT_MODELS);
+			return res.json({
+				models: {
+					built_in: {
+						description: "Built-in models available without the Dione catalog.",
+						models: [...SAFE_DEFAULT_MODELS].map((id) => ({
+							id,
+							name: id,
+							size: "unknown",
+						})),
+					},
+				},
+			});
+		}
 		try {
 			const response = await fetch(
 				"https://api-getdione-app.deeivihh.workers.dev/v1/ai/models",

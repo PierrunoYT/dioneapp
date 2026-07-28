@@ -213,7 +213,22 @@ The audit's post-remediation health score is **94/100**, up from a **24/100** ba
     {"disabled": true}` before consent is examined, rather than returning a generic
     connection error after collecting one.
 
-  No code was deleted — flipping either switch to `true` restores the previous behaviour.
+  - `VITE_PUBLIC_CATALOG_API_ENABLED` gates every outbound call to the hosted Dione
+    catalog API. While false, no request leaves the machine: `/db/featured`,
+    `/db/explore`, `/db/search/name`, `/db/search/type`, `/searchbar/name`, and
+    `/searchbar/type` return empty arrays, and `/db/search/:id` returns `404
+    {"disabled": true}`. The renderer already handles the empty shape, so the feed shows
+    an empty state rather than an error. The AI assistant's `get_latest_apps` and
+    `get_app_by_name` tools return no results, so it answers from locally installed apps
+    instead.
+
+  No code was deleted — flipping any switch to `true` restores the previous behaviour.
+- The AI suggested-model list no longer requires the hosted catalog. `/ai/ollama/
+  available-models` previously fetched the list remotely; with the catalog disabled it now
+  serves the built-in `SAFE_DEFAULT_MODELS` entry instead. That set also gates which models
+  may be pulled and run, so it is deliberately re-seeded rather than emptied — clearing it
+  would have blocked local AI entirely. Models already pulled are unaffected and are still
+  listed by the downloaded-models route.
 - Supabase sessions are no longer persisted or auto-refreshed (`persistSession` and
   `autoRefreshToken` are now false). Dione has no user accounts, so nothing ever signed in
   and there was never a session to keep alive; the anonymous key remains the only

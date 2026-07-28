@@ -1,10 +1,21 @@
+import { catalogApiEnabled } from "@/server/utils/features";
 import logger from "@/server/utils/logger";
 import express from "express";
 
 const router = express.Router();
 router.use(express.json());
 
+// With the hosted catalog disabled there is nothing to query, so list endpoints
+// answer with an empty result rather than reaching the network or erroring. The
+// renderer already renders an empty feed for this shape.
+function catalogDisabled(route: string): boolean {
+	if (catalogApiEnabled) return false;
+	logger.info(`Catalog API disabled, returning no results for ${route}`);
+	return true;
+}
+
 router.get("/featured", (_req, res) => {
+	if (catalogDisabled("/db/featured")) return res.send([]);
 	async function getData() {
 		const response = await fetch(
 			"https://api-getdione-app.deeivihh.workers.dev/v1/scripts?limit=4&order_type=desc&featured=true",
@@ -57,6 +68,7 @@ router.get("/featured", (_req, res) => {
 });
 
 router.get("/explore", (req, res) => {
+	if (catalogDisabled("/db/explore")) return res.json([]);
 	const page = req.query.page ? Number.parseInt(req.query.page as string) : 1;
 	const limit = req.query.limit
 		? Number.parseInt(req.query.limit as string)
@@ -130,6 +142,11 @@ router.get("/explore", (req, res) => {
 
 // search
 router.get("/search/:id", (req, res) => {
+	if (catalogDisabled("/db/search/:id")) {
+		return res
+			.status(404)
+			.json({ error: "Script catalog is disabled", disabled: true });
+	}
 	async function getData() {
 		logger.info(`Searching script with ID: "${req.params.id}"`);
 		const response = await fetch(
@@ -187,6 +204,7 @@ router.get("/search/:id", (req, res) => {
 });
 
 router.get("/search/name/:name", async (req, res) => {
+	if (catalogDisabled("/db/search/name")) return res.send([]);
 	if (!req.params.name) return;
 	if (req.params.name.length === 0) return;
 	async function getData() {
@@ -278,6 +296,7 @@ router.get("/search/name/:name", async (req, res) => {
 });
 
 router.get("/search/type/:type", async (req, res) => {
+	if (catalogDisabled("/db/search/type")) return res.send([]);
 	if (!req.params.type) return;
 	if (req.params.type.length === 0) return;
 	async function getData() {

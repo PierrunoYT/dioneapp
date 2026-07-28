@@ -1,4 +1,5 @@
 import { supabase } from "@/server/utils/database";
+import { catalogApiEnabled } from "@/server/utils/features";
 import logger from "@/server/utils/logger";
 import express from "express";
 
@@ -46,6 +47,12 @@ router.get("/type/:name/:type", async (req, res) => {
 	const orderType = (req.query.order_type as string) || "asc";
 
 	if (!supabase) {
+		if (!catalogApiEnabled) {
+			logger.info(
+				"Catalog API disabled, returning no results for /searchbar/type",
+			);
+			return res.send([]);
+		}
 		try {
 			const scripts = await searchCatalogByType(name, type, orderBy, orderType);
 			return res.send(scripts);
@@ -82,6 +89,12 @@ router.get("/type/:name/:type", async (req, res) => {
 });
 
 router.get("/name/:name", async (req, res) => {
+	if (!catalogApiEnabled) {
+		logger.info(
+			"Catalog API disabled, returning no results for /searchbar/name",
+		);
+		return res.send([]);
+	}
 	const name = req.params.name.replace(/-/g, " ").replace(/\s+/g, " ").trim();
 
 	const orderBy = (req.query.order_by as string) || null;

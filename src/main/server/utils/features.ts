@@ -22,3 +22,11 @@ export const accountsEnabled = isEnabled(
 export const databaseEnabled = isEnabled(
 	import.meta.env.VITE_PUBLIC_DATABASE_ENABLED,
 );
+
+// Gates every outbound call to the hosted Dione catalog API: script discovery,
+// search, and the AI model list. While false those endpoints answer with empty
+// results instead of reaching the network, so the app runs without any hosted
+// service. Local scripts (/local) and their installs are unaffected.
+export const catalogApiEnabled = isEnabled(
+	import.meta.env.VITE_PUBLIC_CATALOG_API_ENABLED,
+);

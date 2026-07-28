@@ -183,7 +183,9 @@ export function parseConfigPatch(value: unknown): AppConfigPatch {
 // example an install folder that predates the filesystem-root restriction—cannot discard
 // every other setting. Runtime patches keep using the strict parser above, because a
 // renderer-supplied value must be rejected rather than silently ignored.
-function parseStoredConfig(storedValue: Record<string, unknown>): AppConfigPatch {
+function parseStoredConfig(
+	storedValue: Record<string, unknown>,
+): AppConfigPatch {
 	const recovered: Record<string, unknown> = {};
 	const rejected: string[] = [];
 
@@ -310,7 +312,8 @@ export const writeConfig = (config: AppConfig) => {
 			}
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "EPERM" && code !== "EINVAL" && code !== "ENOSYS") throw error;
+			if (code !== "EPERM" && code !== "EINVAL" && code !== "ENOSYS")
+				throw error;
 		}
 	} finally {
 		if (fd !== undefined) fs.closeSync(fd);
