@@ -14,11 +14,21 @@ import pty, { type IPty } from "@lydell/node-pty";
 import pidtree from "pidtree";
 import type { Server } from "socket.io";
 import { useGit } from "../utils/use-git";
+import {
+	appendBoundedOutput,
+	createCommandDeadline,
+	resolveContainedWorkingDirectory,
+} from "./process-helpers";
+
+export {
+	appendBoundedOutput,
+	createCommandDeadline,
+	resolveContainedWorkingDirectory,
+} from "./process-helpers";
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const PROCESS_GRACE_MS = 3_000;
 const PROCESS_ESCALATION_MS = 2_000;
-const MAX_CAPTURED_OUTPUT_BYTES = 1024 * 1024;
 const MAX_PENDING_SOCKET_BYTES = 64 * 1024;
 const MAX_SOCKET_BATCH_BYTES = 16 * 1024;
 const SOCKET_FLUSH_INTERVAL_MS = 100;
@@ -399,23 +409,6 @@ export const stopAllActiveProcesses = async (): Promise<void> => {
 	await dropProcesses();
 };
 
-export function appendBoundedOutput(
-	current: string,
-	incoming: string,
-	maxBytes = MAX_CAPTURED_OUTPUT_BYTES,
-): string {
-	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
-		throw new Error("Output limit must be a positive integer");
-	}
-	const combined = Buffer.from(current + incoming);
-	if (combined.byteLength <= maxBytes) return combined.toString();
-	let start = combined.byteLength - maxBytes;
-	while (start < combined.byteLength && (combined[start] & 0xc0) === 0x80) {
-		start++;
-	}
-	return combined.subarray(start).toString();
-}
-
 function splitOutputBatch(value: string, maxBytes: number): [string, string] {
 	let bytes = 0;
 	let end = 0;
@@ -482,58 +475,12 @@ class RateLimitedSocketOutput {
 	}
 }
 
-export async function resolveContainedWorkingDirectory(
-	rootDirectory: string,
-	requestedDirectory = ".",
-): Promise<string> {
-	const canonicalRoot = await fs.promises.realpath(rootDirectory);
-	const candidate = path.resolve(canonicalRoot, requestedDirectory);
-	const canonicalCandidate = await fs.promises.realpath(candidate);
-	const relative = path.relative(canonicalRoot, canonicalCandidate);
-	if (
-		relative === ".." ||
-		relative.startsWith(`..${path.sep}`) ||
-		path.isAbsolute(relative)
-	) {
-		throw new Error("Command working directory escapes the application root");
-	}
-	const stats = await fs.promises.stat(canonicalCandidate);
-	if (!stats.isDirectory())
-		throw new Error("Command working directory is not a directory");
-	return canonicalCandidate;
-}
-
 interface ExecuteCommandOptions {
 	customEnv?: Record<string, string>;
 	onOutput?: (text: string) => void;
 	signal?: AbortSignal;
 	operationId?: string;
 	timeoutMs?: number;
-}
-
-function createCommandDeadline(
-	parent: AbortSignal | undefined,
-	timeoutMs: number,
-) {
-	const controller = new AbortController();
-	let timedOut = false;
-	const abort = () => controller.abort(parent?.reason);
-	if (parent?.aborted) abort();
-	else parent?.addEventListener("abort", abort, { once: true });
-	const timer = setTimeout(() => {
-		timedOut = true;
-		controller.abort(new Error("Command timed out"));
-	}, timeoutMs);
-	return {
-		signal: controller.signal,
-		get timedOut() {
-			return timedOut;
-		},
-		dispose: () => {
-			clearTimeout(timer);
-			parent?.removeEventListener("abort", abort);
-		},
-	};
 }
 
 function filterOutput(data: string, isWindows: boolean): string {

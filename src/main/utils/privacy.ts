@@ -15,19 +15,19 @@ export interface SafeReport {
 	output?: string;
 }
 
+function utf8Prefix(value: string, maxBytes: number): string {
+	const buffer = Buffer.from(value, "utf8");
+	if (buffer.byteLength <= maxBytes) return value;
+	let end = Math.max(0, maxBytes);
+	while (end > 0 && (buffer[end] & 0xc0) === 0x80) end--;
+	return buffer.subarray(0, end).toString("utf8");
+}
+
 function truncateUtf8(value: string, maxBytes: number): string {
 	if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
-	const contentLimit = Math.max(
-		0,
-		maxBytes - Buffer.byteLength(TRUNCATION_MARKER, "utf8"),
-	);
-	let truncated = Buffer.from(value, "utf8")
-		.subarray(0, contentLimit)
-		.toString("utf8");
-	while (Buffer.byteLength(truncated, "utf8") > contentLimit) {
-		truncated = truncated.slice(0, -1);
-	}
-	return `${truncated}${TRUNCATION_MARKER}`;
+	const markerBytes = Buffer.byteLength(TRUNCATION_MARKER, "utf8");
+	if (maxBytes <= markerBytes) return utf8Prefix(TRUNCATION_MARKER, maxBytes);
+	return `${utf8Prefix(value, maxBytes - markerBytes)}${TRUNCATION_MARKER}`;
 }
 
 export function sanitizeDiagnosticText(
@@ -39,11 +39,11 @@ export function sanitizeDiagnosticText(
 		.toString("utf8");
 	const redacted = boundedInput
 		.replace(
-			/\b(api[-_ ]?key|access[-_ ]?token|auth(?:orization)?|cookie|credential|password|passwd|private[-_ ]?key|refresh[-_ ]?token|secret|session|token)\b(\s*[=:]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\]}]+)/gi,
+			/(?<![A-Za-z0-9])(api[-_ ]?key|access[-_ ]?token|auth(?:orization)?|cookie|credential|password|passwd|private[-_ ]?key|refresh[-_ ]?token|secret|session|token)\b(\s*[=:]\s*)(?!\[REDACTED_SECRET\](?=$|[\s,;\]}]))(?:\[REDACTED_SECRET\][^\s,;\]}]*|"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\]}]+)/gi,
 			"$1$2[REDACTED_SECRET]",
 		)
 		.replace(
-			/\b(authorization|proxy-authorization)\s*:\s*[^\r\n]+/gi,
+			/\b(authorization|proxy-authorization|cookie)\s*[:=]\s*[^\r\n]+/gi,
 			"$1: [REDACTED_SECRET]",
 		)
 		.replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [REDACTED_SECRET]")

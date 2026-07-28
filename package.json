@@ -29,6 +29,8 @@
   },
   "scripts": {
     "format": "biome format --write ./src",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm test && npm run typecheck && biome check ./tests ./src/main/server/scripts/process.ts ./src/main/server/scripts/process-helpers.ts ./src/main/utils/privacy.ts && npm run check-licenses && npm run check-installer-security",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run check-locales && npm run typecheck:node && npm run typecheck:web",
