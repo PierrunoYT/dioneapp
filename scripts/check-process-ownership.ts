@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import pty from "@lydell/node-pty";
+import * as pty from "@lydell/node-pty";
 import pidtree from "pidtree";
 import {
 	buildProcessSignalPlan,
