@@ -1,37 +1,16 @@
 import http from "node:http";
 import { setupRoutes } from "@/server/routes/setup";
-import { requireBackendAuth } from "@/server/security";
 import logger from "@/server/utils/logger";
 import { start as setupSocket } from "@/socket/socket";
-import cors from "cors";
-import express from "express";
 import type { Server as SocketIOServer } from "socket.io";
+import { createBackendApp } from "./backend-app";
 
 let httpServer: http.Server | null = null;
 let io: SocketIOServer | null = null;
 
 export const start = async (): Promise<number> => {
 	logger.info("Starting server...");
-	const app = express();
-	app.use(
-		cors({
-			origin: (origin, callback) => {
-				if (
-					!origin ||
-					origin === "null" ||
-					origin === "http://localhost:2214" ||
-					origin === "http://127.0.0.1:2214"
-				) {
-					callback(null, true);
-					return;
-				}
-				callback(new Error("Origin is not allowed"));
-			},
-			methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-			allowedHeaders: ["Authorization", "Content-Type"],
-		}),
-	);
-	app.use(requireBackendAuth);
+	const app = createBackendApp();
 
 	const localServer = http.createServer(app);
 

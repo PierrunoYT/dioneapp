@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { readConfig } from "@/config";
 import { app } from "electron";
+import { validateAppId } from "./app-id";
+
+export { sanitizeScriptName, validateAppId } from "./app-id";
 
 export interface ScriptPathInfo {
 	sanitizedName: string;
@@ -11,24 +14,10 @@ export interface ScriptPathInfo {
 	dioneFile: string;
 }
 
-const APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-
-const sanitizeWhitespace = (name: string) => name.trim().replace(/\s+/g, "-");
-
-export const validateAppId = (value: string) => {
-	const appId = sanitizeWhitespace(value);
-	if (!APP_ID_PATTERN.test(appId) || appId === "." || appId === "..") {
-		throw new Error("Invalid application identifier");
-	}
-	return appId;
-};
-
 const getRootDirectory = () =>
 	app.isPackaged
 		? path.join(path.dirname(app.getPath("exe")))
 		: path.join(process.cwd());
-
-export const sanitizeScriptName = (name: string) => validateAppId(name);
 
 export const getInstallRoot = () => {
 	const config = readConfig();

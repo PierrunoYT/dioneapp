@@ -92,7 +92,7 @@ const DYNAMIC_OPERATIONS = [
 	["POST", /^\/ai\/ollama\/download-model$/, "ai.downloadModel", []],
 ] as const;
 
-function resolveBackendOperation(value: string, method: string) {
+export function resolveBackendOperation(value: string, method: string) {
 	const url = new URL(
 		value.startsWith("/") ? value : `/${value}`,
 		"http://dione.invalid",

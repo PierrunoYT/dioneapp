@@ -66,3 +66,9 @@ test("socket tickets are scoped to an application and single use", () => {
 	assert.equal(consumeSocketTicket(validTicket, "app-one"), true);
 	assert.equal(consumeSocketTicket(validTicket, "app-one"), false);
 });
+
+test("socket tickets expire against an injected clock and remain single use", () => {
+	const ticket = createSocketTicket("app", 1_000);
+	assert.equal(consumeSocketTicket(ticket, "app", 61_001), false);
+	assert.equal(consumeSocketTicket(ticket, "app", 1_001), false);
+});

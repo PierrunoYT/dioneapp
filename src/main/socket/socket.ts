@@ -1,10 +1,12 @@
 import type http from "node:http";
-import { sanitizeScriptName } from "@/server/scripts/utils/paths";
-import { consumeSocketTicket } from "@/server/security";
 import logger from "@/server/utils/logger";
 import { Server } from "socket.io";
+import { authenticateSocket } from "./auth";
 
-export const start = (httpServer: http.Server) => {
+export const start = (
+	httpServer: http.Server,
+	now: () => number = Date.now,
+) => {
 	logger.info("Connecting socket...");
 	try {
 		const io = new Server(httpServer, {
@@ -13,18 +15,7 @@ export const start = (httpServer: http.Server) => {
 				methods: ["GET", "POST"],
 			},
 		});
-		io.use((socket, next) => {
-			try {
-				const appId = sanitizeScriptName(socket.handshake.auth?.appId);
-				if (!consumeSocketTicket(socket.handshake.auth?.ticket, appId)) {
-					throw new Error("Unauthorized");
-				}
-				socket.data.appId = appId;
-				next();
-			} catch {
-				next(new Error("Unauthorized"));
-			}
-		});
+		io.use((socket, next) => authenticateSocket(socket, next, now));
 
 		io.on("connection", (socket) => {
 			logger.info(`A user has connected to the server with ID: "${socket.id}"`);

@@ -17,8 +17,7 @@ export function isValidBackendToken(value: unknown): boolean {
 	);
 }
 
-export function createSocketTicket(appId: string): string {
-	const now = Date.now();
+export function createSocketTicket(appId: string, now = Date.now()): string {
 	for (const [value, ticket] of socketTickets) {
 		if (ticket.expiresAt < now) socketTickets.delete(value);
 	}
@@ -27,13 +26,15 @@ export function createSocketTicket(appId: string): string {
 	return ticket;
 }
 
-export function consumeSocketTicket(value: unknown, appId: string): boolean {
+export function consumeSocketTicket(
+	value: unknown,
+	appId: string,
+	now = Date.now(),
+): boolean {
 	if (typeof value !== "string") return false;
 	const ticket = socketTickets.get(value);
 	socketTickets.delete(value);
-	return Boolean(
-		ticket && ticket.expiresAt >= Date.now() && ticket.appId === appId,
-	);
+	return Boolean(ticket && ticket.expiresAt >= now && ticket.appId === appId);
 }
 
 export function requireBackendAuth(

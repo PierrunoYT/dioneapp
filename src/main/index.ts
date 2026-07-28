@@ -56,6 +56,11 @@ import {
 import { autoUpdater } from "electron-updater";
 import si from "systeminformation";
 import {
+	BackendCallRegistry,
+	isExactTrustedSender,
+	resolveBackendRequest,
+} from "./backend-ipc";
+import {
 	resizeTerminal,
 	stopAllActiveProcesses,
 } from "./server/scripts/process";
@@ -148,24 +153,21 @@ let port: number;
 const pendingDeepLinks: string[] = [];
 let dispatchDeepLink: ((url: string | undefined) => void) | undefined;
 let rendererReadyForDeepLinks = false;
-const activeBackendCalls = new Map<
-	string,
-	{ controller: AbortController; sender: Electron.WebContents }
->();
+const backendCalls = new BackendCallRegistry<Electron.WebContents>();
 
 const abortBackendCalls = (sender: Electron.WebContents) => {
-	for (const call of activeBackendCalls.values()) {
-		if (call.sender === sender) call.controller.abort();
-	}
+	backendCalls.abortOwner(sender);
 };
 
 const isTrustedRenderer = (
 	event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
 ) => {
 	if (!mainWindow || mainWindow.isDestroyed()) return false;
-	return (
-		event.sender === mainWindow.webContents &&
-		event.senderFrame === mainWindow.webContents.mainFrame
+	return isExactTrustedSender(
+		event.sender,
+		event.senderFrame,
+		mainWindow.webContents,
+		mainWindow.webContents.mainFrame,
 	);
 };
 
@@ -709,206 +711,10 @@ app.whenReady().then(async () => {
 				Array.isArray(params)
 			)
 				throw new Error("Invalid backend operation");
-			if (activeBackendCalls.has(requestId))
-				throw new Error("Duplicate backend request ID");
-			const value = (name: string, max = 512) => {
-				const item = params[name];
-				if (
-					typeof item !== "string" ||
-					item.length === 0 ||
-					item.length > max ||
-					/[\0\r\n]/.test(item)
-				)
-					throw new Error(`Invalid backend parameter: ${name}`);
-				return encodeURIComponent(item);
-			};
-			const query = (allowed: string[]) => {
-				const result = new URLSearchParams();
-				for (const name of allowed) {
-					if (params[name] !== undefined)
-						result.set(name, decodeURIComponent(value(name, 4096)));
-				}
-				return result.toString();
-			};
-			let method: "GET" | "POST" | "PATCH" | "DELETE";
-			let requestPath: string;
-			switch (operation) {
-				case "config.get":
-					[method, requestPath] = ["GET", "/config"];
-					break;
-				case "config.patch":
-					[method, requestPath] = ["PATCH", "/config"];
-					break;
-				case "config.reset":
-					[method, requestPath] = ["POST", "/config/reset"];
-					break;
-				case "report.submit":
-					[method, requestPath] = ["POST", "/report"];
-					break;
-				case "report.preview":
-					[method, requestPath] = ["POST", "/report/preview"];
-					break;
-				case "dependencies.uninstall":
-					[method, requestPath] = ["POST", "/deps/uninstall"];
-					break;
-				case "dependencies.inUse":
-					[method, requestPath] = ["POST", "/deps/in-use"];
-					break;
-				case "dependencies.install":
-					[method, requestPath] = ["POST", `/deps/install/${value("id")}`];
-					break;
-				case "dependencies.cancel":
-					[method, requestPath] = ["POST", `/deps/cancel/${value("id")}`];
-					break;
-				case "database.featured":
-					[method, requestPath] = [
-						"GET",
-						`/db/featured?${query(["page", "limit"])}`,
-					];
-					break;
-				case "database.explore":
-					[method, requestPath] = [
-						"GET",
-						`/db/explore?${query(["page", "limit", "order_by", "order_type"])}`,
-					];
-					break;
-				case "database.search":
-					[method, requestPath] = ["GET", `/db/search/${value("id")}`];
-					break;
-				case "database.searchName":
-					[method, requestPath] = ["GET", `/db/search/name/${value("name")}`];
-					break;
-				case "database.searchType":
-					[method, requestPath] = [
-						"GET",
-						`/db/search/type/${value("type")}?${query(["page", "limit", "order_by", "order_type"])}`,
-					];
-					break;
-				case "search.name":
-					[method, requestPath] = [
-						"GET",
-						`/searchbar/name/${value("name")}?${query(["page", "limit", "order_by", "order_type"])}`,
-					];
-					break;
-				case "search.type":
-					[method, requestPath] = [
-						"GET",
-						`/searchbar/type/${value("name")}/${value("type")}?${query(["page", "limit", "order_by", "order_type"])}`,
-					];
-					break;
-				case "local.list":
-					[method, requestPath] = ["GET", "/local/"];
-					break;
-				case "local.installed":
-					[method, requestPath] = ["GET", `/local/installed/${value("name")}`];
-					break;
-				case "local.getApp":
-					[method, requestPath] = ["GET", `/local/get_app/${value("name")}`];
-					break;
-				case "local.getId":
-					[method, requestPath] = ["GET", `/local/get_id/${value("id")}`];
-					break;
-				case "local.load":
-					[method, requestPath] = ["POST", `/local/load/${value("name")}`];
-					break;
-				case "local.delete":
-					[method, requestPath] = ["DELETE", `/local/delete/${value("name")}`];
-					break;
-				case "local.upload":
-					[method, requestPath] = [
-						"POST",
-						`/local/upload/${value("filePath", 4096)}/${value("name")}/${value("description", 4096)}`,
-					];
-					break;
-				case "scripts.installed":
-					[method, requestPath] = ["GET", "/scripts/installed"];
-					break;
-				case "scripts.isInstalled":
-					[method, requestPath] = [
-						"GET",
-						`/scripts/installed/${value("name")}`,
-					];
-					break;
-				case "scripts.checkUpdate":
-					[method, requestPath] = ["POST", "/scripts/check-update"];
-					break;
-				case "scripts.download":
-					[method, requestPath] = [
-						"GET",
-						`/scripts/download/${value("id")}${params.force === "true" ? "?force=true" : ""}`,
-					];
-					break;
-				case "scripts.start":
-					[method, requestPath] = [
-						"POST",
-						`/scripts/start/${value("name")}/${value("id")}${params.start ? `?start=${value("start")}` : ""}`,
-					];
-					break;
-				case "scripts.stop":
-					[method, requestPath] = [
-						"GET",
-						`/scripts/stop/${value("name")}/${value("id")}`,
-					];
-					break;
-				case "scripts.delete":
-					[method, requestPath] = ["GET", `/scripts/delete/${value("name")}`];
-					break;
-				case "scripts.startOptions":
-					[method, requestPath] = [
-						"GET",
-						`/scripts/start-options/${value("name")}`,
-					];
-					break;
-				case "files.read": {
-					const action = params.action;
-					if (!["root", "list", "content"].includes(action))
-						throw new Error("Invalid file read operation");
-					[method, requestPath] = [
-						"GET",
-						`/files/${action}/${value("name")}?${query(["appId", "dir", "file"])}`,
-					];
-					break;
-				}
-				case "files.mutate": {
-					const action = params.action;
-					if (!["save", "delete", "create", "rename"].includes(action))
-						throw new Error("Invalid file mutation operation");
-					[method, requestPath] = [
-						"POST",
-						`/files/${action}/${value("name")}?${query(["appId"])}`,
-					];
-					break;
-				}
-				case "ai.models":
-					[method, requestPath] = ["GET", "/ai/ollama/models"];
-					break;
-				case "ai.availableModels":
-					[method, requestPath] = ["GET", "/ai/ollama/available-models"];
-					break;
-				case "ai.isInstalled":
-					[method, requestPath] = ["GET", "/ai/ollama/isinstalled"];
-					break;
-				case "ai.install":
-					[method, requestPath] = ["POST", "/ai/ollama/install"];
-					break;
-				case "ai.stop":
-					[method, requestPath] = ["POST", "/ai/ollama/stop"];
-					break;
-				case "ai.start":
-					[method, requestPath] = ["POST", "/ai/ollama/start"];
-					break;
-				case "ai.chat":
-					[method, requestPath] = ["POST", "/ai/ollama/chat"];
-					break;
-				case "ai.downloadModel":
-					[method, requestPath] = [
-						"POST",
-						`/ai/ollama/download-model?model=${value("model")}`,
-					];
-					break;
-				default:
-					throw new Error("Unsupported backend operation");
-			}
+			const { method, path: requestPath } = resolveBackendRequest(
+				operation,
+				params,
+			);
 			if (
 				init?.body !== undefined &&
 				(typeof init.body !== "string" || init.body.length > 2_000_000)
@@ -918,9 +724,7 @@ app.whenReady().then(async () => {
 				init?.headers?.["content-type"] || init?.headers?.["Content-Type"];
 			if (contentType !== undefined && typeof contentType !== "string")
 				throw new Error("Invalid backend Content-Type");
-			const controller = new AbortController();
-			const call = { controller, sender: event.sender };
-			activeBackendCalls.set(requestId, call);
+			const call = backendCalls.begin(requestId, event.sender);
 			try {
 				const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, {
 					method,
@@ -929,7 +733,7 @@ app.whenReady().then(async () => {
 						...(contentType ? { "Content-Type": contentType } : {}),
 					},
 					body: method === "GET" ? undefined : init?.body,
-					signal: controller.signal,
+					signal: call.controller.signal,
 				});
 				const body = await response.text();
 				if (body.length > 16_000_000)
@@ -941,15 +745,13 @@ app.whenReady().then(async () => {
 					body,
 				};
 			} finally {
-				if (activeBackendCalls.get(requestId) === call)
-					activeBackendCalls.delete(requestId);
+				backendCalls.finish(requestId, call);
 			}
 		},
 	);
 	secureOn("backend:cancel", (event, requestId: unknown) => {
 		if (typeof requestId !== "string") return;
-		const call = activeBackendCalls.get(requestId);
-		if (call?.sender === event.sender) call.controller.abort();
+		backendCalls.cancel(requestId, event.sender);
 	});
 
 	secureOn("terminal:resize", (_event, payload) => {

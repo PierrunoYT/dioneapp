@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { clipboard, contextBridge, ipcRenderer } from "electron";
+import { createBackendCaller } from "./backend-call";
 
 const on = <T>(channel: string, callback: (value: T) => void) => {
 	const listener = (_event: Electron.IpcRendererEvent, value: T) =>
@@ -7,6 +8,8 @@ const on = <T>(channel: string, callback: (value: T) => void) => {
 	ipcRenderer.on(channel, listener);
 	return () => ipcRenderer.removeListener(channel, listener);
 };
+
+const callBackend = createBackendCaller(ipcRenderer, randomUUID);
 
 const dione = Object.freeze({
 	runtime: Object.freeze({
@@ -19,23 +22,7 @@ const dione = Object.freeze({
 	}),
 	rendererReady: () => ipcRenderer.send("renderer-ready"),
 	getBackendPort: () => ipcRenderer.invoke("backend:get-port"),
-	callBackend: (
-		operation: string,
-		params: Record<string, string>,
-		init?: { headers?: Record<string, string>; body?: string },
-	) => {
-		const requestId = randomUUID();
-		return Object.freeze({
-			response: ipcRenderer.invoke(
-				"backend:call",
-				requestId,
-				operation,
-				params,
-				init,
-			),
-			cancel: () => ipcRenderer.send("backend:cancel", requestId),
-		});
-	},
+	callBackend,
 	getSocketCredentials: (appId: string) =>
 		ipcRenderer.invoke("backend:get-socket-credentials", appId),
 	onBackendPortChanged: (callback: (port: number) => void) =>

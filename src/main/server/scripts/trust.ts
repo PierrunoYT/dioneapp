@@ -309,9 +309,10 @@ function trustStore(): Record<string, string> {
 	}
 }
 
-export async function verifyAndRecordRemoteManifest(
+async function verifyAndRecordRemoteManifestWithStore(
 	manifestPath: string,
 	metadata: RemoteTrustMetadata,
+	trustedKeys: () => Record<string, string>,
 ): Promise<void> {
 	if (!/^[a-f0-9]{40}$/i.test(metadata.commit))
 		throw new Error(
@@ -328,7 +329,7 @@ export async function verifyAndRecordRemoteManifest(
 		throw new Error(
 			"Downloaded manifest SHA-256 does not match publisher metadata",
 		);
-	const publicKey = trustStore()[metadata.publisherKeyId];
+	const publicKey = trustedKeys()[metadata.publisherKeyId];
 	if (!publicKey)
 		throw new Error(
 			`Publisher key '${metadata.publisherKeyId}' is not in DIONE_PUBLISHER_TRUST_STORE`,
@@ -445,8 +446,9 @@ export async function consumeLocalApproval(
 	approvedLocalManifestHashes.add(`${path.resolve(manifestPath)}\0${hash}`);
 }
 
-export async function loadTrustedManifest(
+async function loadTrustedManifestWithStore(
 	manifestPath: string,
+	trustedKeys: () => Record<string, string>,
 ): Promise<Record<string, any>> {
 	const bytes = await readManifestNoFollow(manifestPath);
 	const manifest = validateManifestBytes(bytes);
@@ -487,7 +489,7 @@ export async function loadTrustedManifest(
 	) {
 		throw new Error("Publisher trust receipt is incomplete");
 	}
-	const publicKey = trustStore()[receipt.publisherKeyId];
+	const publicKey = trustedKeys()[receipt.publisherKeyId];
 	if (!publicKey)
 		throw new Error(
 			`Publisher key '${receipt.publisherKeyId}' is no longer trusted`,
@@ -506,4 +508,38 @@ export async function loadTrustedManifest(
 	)
 		throw new Error("Publisher trust receipt signature is invalid");
 	return manifest;
+}
+
+export function createManifestTrust(trustedKeys: Record<string, string>) {
+	const store = Object.freeze({ ...trustedKeys });
+	return Object.freeze({
+		verifyAndRecordRemoteManifest: (
+			manifestPath: string,
+			metadata: RemoteTrustMetadata,
+		) =>
+			verifyAndRecordRemoteManifestWithStore(
+				manifestPath,
+				metadata,
+				() => store,
+			),
+		loadTrustedManifest: (manifestPath: string) =>
+			loadTrustedManifestWithStore(manifestPath, () => store),
+	});
+}
+
+export function verifyAndRecordRemoteManifest(
+	manifestPath: string,
+	metadata: RemoteTrustMetadata,
+): Promise<void> {
+	return verifyAndRecordRemoteManifestWithStore(
+		manifestPath,
+		metadata,
+		trustStore,
+	);
+}
+
+export function loadTrustedManifest(
+	manifestPath: string,
+): Promise<Record<string, any>> {
+	return loadTrustedManifestWithStore(manifestPath, trustStore);
 }
