@@ -6,7 +6,7 @@
 
 **Baseline health score:** **24/100 — high risk**
 
-**Current health score (July 28, 2026):** **82/100 — substantially improved; deployment validation and test coverage remain**
+**Current health score (July 28, 2026):** **94/100 — strong; live deployment attestation and OS containment residuals remain**
 
 ## Executive summary
 
@@ -30,26 +30,40 @@ Closely related endpoint- or installer-specific defects are consolidated under s
 
 ### Current score reassessment — July 28, 2026
 
-The post-remediation static health score is **82/100**. This replaces neither the original **24/100** baseline nor the individual finding history. It reflects the current repository after code-level remediation of C-01 through C-08, M-01 through M-21, all Low findings, and most High findings. It is not a security certification or a substitute for deployment testing.
+The post-remediation static health score is **94/100**. This replaces neither the original **24/100** baseline nor the individual finding history. All baseline findings now have code-level remediation or secure fail-closed handling. The score is not 100 because live deployment state and kernel-level process containment cannot be proven by repository changes alone. It is not a security certification or a substitute for deployment testing.
 
 | Dimension | Weight | Current score | Basis |
 |---|---:|---:|---|
-| Security boundaries and data protection | 32 | 28 | Native control-plane authentication, typed IPC, sandboxing, path containment, signed manifests, and explicit diagnostic consent are implemented. Publisher trust deployment, Supabase anonymous-key/RLS verification, and a hostile-filesystem race caveat remain. |
-| Correctness and reliability | 20 | 17 | Installation failures now propagate, renderer mutations fail correctly, stale async state is generation-owned, and shutdown/configuration workflows are hardened. Some IPC requests cannot yet forward abort signals, and fail-closed installer support reduces platform compatibility. |
-| Process and concurrency safety | 15 | 13 | Operations own cancellation and child processes, output and deadlines are bounded, and termination escalates predictably. A deliberately reparented daemon cannot always be rediscovered without OS job/process-group ownership. |
-| Dependencies and installer supply chain | 15 | 12 | Enabled artifacts are pinned and verified, archive extraction is hardened, and production advisories fell from 28 to 2. Several unverifiable platform artifacts are disabled, and two duplicate React Router advisory entries have no published forward fix. |
-| Automated testing and verification | 10 | 5 | Typechecking, formatting, builds, packaging, license checks, trust/privacy assertions, and deterministic installer attack fixtures pass, but the repository still has no broad unit, integration, or end-to-end test harness. |
-| Maintainability and documentation | 8 | 7 | Shared boundaries replaced several ad hoc patterns, stale documentation was corrected, notices are generated, and the audit tracks remediation. Some deployment runbooks and regression coverage are still needed. |
-| **Total** | **100** | **82** | **Substantially improved, with important external validation and test-maturity work remaining.** |
+| Security boundaries and data protection | 32 | 30 | Native control-plane authentication, typed IPC, sandboxing, path containment, signed manifests, diagnostic consent, release attestation, and least-privilege Supabase policies are implemented. The real deployed catalog, key classification, and RLS state still require live attestation; a hostile-filesystem race caveat remains. |
+| Correctness and reliability | 20 | 19 | Installation failures propagate, renderer mutations fail correctly, IPC requests are genuinely abortable and owner-bound, stale async state is generation-owned, and shutdown/configuration workflows are hardened. Unsupported artifacts fail closed; CUDA Linux remains unavailable because its vendor provides no qualifying SHA-256 or signature. |
+| Process and concurrency safety | 15 | 13 | Operations own cancellation and child processes, Unix sessions/process groups and Windows fallback trees are tested, output and deadlines are bounded, and termination escalates predictably. Windows lacks a race-free Job Object boundary, and a child that deliberately escapes its Unix session can evade ownership. |
+| Dependencies and installer supply chain | 15 | 15 | Full and production npm audits report zero findings. Supported installers use pinned SHA-256 or exact-signer Authenticode, bounded redirects and staging, hardened tar/ZIP extraction, validated contained links, and deterministic malicious-archive fixtures. |
+| Automated testing and verification | 10 | 9 | Forty-seven deterministic tests cover auth, IPC ownership/cancellation, operation mapping, middleware ordering, real Socket.IO handshakes, publisher tamper rejection, privacy, paths, deadlines, and real Linux process groups. Windows Node/Electron PTY cleanup runs in CI. A launched-Electron end-to-end test and live external attestation are still absent. |
+| Maintainability and documentation | 8 | 8 | Comprehensive Biome checks cover 199 first-party files, CI enforces tests and linting, deployment and migration runbooks are versioned, notices are generated, and security seams are isolated for deterministic testing. |
+| **Total** | **100** | **94** | **Strong repository health, with six points retained for independently verifiable operational and OS-boundary risk.** |
 
-The 18-point deduction is driven by concrete residual risk rather than unresolved baseline exploit chains:
+The six-point deduction is driven by concrete residual risk rather than unresolved baseline exploit chains:
 
-- remote installation remains intentionally unavailable until `DIONE_PUBLISHER_TRUST_STORE` and signed catalog metadata are deployed;
-- the deployed Supabase credential must be independently confirmed as anonymous and every reachable table must have tested row-level security;
-- unverifiable FFmpeg, Node Linux/macOS, Ollama Linux/macOS, and CUDA Linux installer paths are disabled rather than insecurely supported;
-- two High React Router audit entries remain for an RSC/server-action path Dione does not use, with no published fixed forward release;
-- process-tree ownership and no-follow filesystem behavior retain documented platform defense-in-depth caveats; and
-- the absence of comprehensive automated behavioral tests is now the largest general code-health gap.
+- production remote installation remains fail-closed until the real publisher trust store and frozen signed catalog pass live release attestation;
+- the deployed Supabase credential and effective grants/RLS policies must pass the new live attestation RPC after the migration is applied;
+- Windows process cleanup is runtime-tested under Node and Electron, but Electron/node-pty cannot provide race-free suspended creation and Job Object assignment; rapid detach/reparent behavior can still escape snapshot-based cleanup;
+- a Unix descendant that deliberately creates a new session before discovery leaves the owned session, and some platforms lack complete no-follow filesystem primitives against concurrent hostile mutation;
+- CUDA Linux remains disabled because NVIDIA publishes only MD5 for the selected runfile; Ollama's checksum manifest is unsigned, and FFmpeg uses pinned named third-party binary distributors because the project publishes source rather than official binaries; and
+- tests do not launch the complete packaged Electron application or exercise the real external deployment, even though component, integration, build, unpack, and hosted-Windows runtime checks now pass.
+
+An honest **100/100** requires external evidence, not another documentation change: apply the Supabase migration, configure the production publisher trust store and signed frozen catalog, run `npm run attest-deployment` successfully against production, and establish a race-free Windows process ownership primitive or formally remove the requirement to run untrusted child processes. Until then, 94/100 is the highest evidence-supported score.
+
+## Final hardening update — July 28, 2026
+
+The second remediation wave added repository-wide verification and closed the remaining repository-controlled dependency, cancellation, installer, and testing gaps:
+
+- renderer `AbortSignal` cancellation now propagates through typed preload/main IPC to an owner-bound backend request controller, with identity-safe cleanup and late-completion rejection;
+- React Router was replaced by a tested `wouter` hash-router compatibility layer, and both full and production `npm audit` now report **0 vulnerabilities**;
+- supported Node, Ollama, and FFmpeg Linux/macOS installers were restored through pinned vendor checksums and hardened tar.gz/tar.zst extraction; CUDA Linux remains securely disabled;
+- release builds fail closed unless publisher trust and catalog configuration are valid, while a versioned Supabase migration and live attestation RPC enforce exact anonymous grants and RLS policy shape;
+- Unix session/process-group ownership and bounded Windows CIM/ConPTY/`taskkill` fallback are implemented, with hosted-Windows Node 22 and Electron 41 runtime checks;
+- `npm test` now runs 47 deterministic security and lifecycle tests, and `npm run check` adds full typechecking, comprehensive Biome enforcement, license freshness, and malicious-installer fixtures; and
+- CI validates Linux build behavior plus Windows process cleanup, while release attestation binds public configuration to the exact release commit.
 
 ## Remediation update — July 27, 2026
 
@@ -86,7 +100,7 @@ All nine low-severity findings from the baseline audit have been remediated:
 | L-08 | Resolved | README repository, release, support, security, account-status, and maintenance-status copy was updated; stale renderer login entry points were removed. |
 | L-09 | Resolved | Added a deterministic lockfile-derived `THIRD_PARTY_NOTICES.md`, explicit reviewed overrides for the three lock entries without license metadata, packaging rules, and a build-time freshness check. |
 
-The **24/100 score remains the historical baseline for this stage of the remediation timeline**. The current post-remediation score is **82/100**; see the reassessment above.
+The **24/100 score remains the historical baseline for this stage of the remediation timeline**. The current post-remediation score is **94/100**; see the reassessment above.
 
 ## Medium-severity remediation update — July 28, 2026
 
@@ -115,9 +129,9 @@ The code-level remediation for M-01 through M-21 is complete. M-02 and M-20 were
 | M-19 | Resolved | Settings use serialized partial PATCH operations; reset is in the same recovered queue, blocks later writes, clears only owned keys, and navigates only after confirmation. |
 | M-20 | Superseded by C-07 remediation | The spoofable session telemetry API and its renderer/main-process callers were removed, so settings reset no longer has a session operation to await. |
 | M-21 | Resolved | Runtime translation lookup falls back to English, locale selection is validated, and CI checks every locale for invalid or unknown schema entries. |
-| M-22 | **Conditionally resolved** | Build-time webhook and privileged API-token injection was removed. Bundled Supabase values are explicitly public URL/anonymous credentials; reports pass through the backend and privileged service access uses optional runtime-only `DIONE_API_KEY`. Confirm that the deployed key is truly anonymous and that RLS is enabled and tested for every reachable table before closing this finding. |
+| M-22 | **Conditionally resolved; live attestation required** | Build-time webhook and privileged API-token injection was removed. A versioned migration revokes broad/default grants, forces exact anonymous privileges and RLS policies, and provides a security-definer attestation RPC covering effective grants, role attributes, policies, schemas, sequences, and functions. Release rejects privileged keys and requires the live deployment attestation, but the migration and real deployed state must still be verified by the operator. |
 
-The **24/100 health score remains the historical audit baseline**. The current post-remediation score is **82/100**. The medium-finding table below is retained as the original baseline evidence and recommendation record; the latest remediation update is authoritative for current status.
+The **24/100 health score remains the historical audit baseline**. The current post-remediation score is **94/100**. The medium-finding table below is retained as the original baseline evidence and recommendation record; the latest remediation update is authoritative for current status.
 
 ## Critical-severity remediation update — July 28, 2026
 
@@ -132,7 +146,7 @@ The code-level remediation for C-01 through C-08 is complete. All critical explo
 | C-05 | Resolved | File workspaces are selected only from canonical server-enumerated app roots. Path components and symlinks are rejected, reads/writes are bounded to the canonical root, and sensitive leaf writes use no-follow handles or exclusive random staging plus atomic replacement. Concurrent hostile filesystem mutation remains a defense-in-depth hardening area on platforms without complete no-follow primitives, not the original request-driven escape. |
 | C-06 | Resolved | AI reads require a server-selected project ID, canonical non-symlink containment, relative component validation, an extension allowlist, sensitive-name blocking, a 32 KiB size limit, and reading through the validated open file handle. |
 | C-07 | Resolved | The renderer-triggered Supabase update and caller-identified event APIs were removed, as was the obsolete renderer telemetry utility. The remaining database routes are read-only. |
-| C-08 | Resolved (deployment prerequisite) | Remote manifests now require strict versioned schema/capabilities, SHA-256, an immutable 40-character commit, a trusted Ed25519 publisher key, and a signature binding hash/source/commit. Downloads use exclusive random staging; startup/install/update execute the exact parsed bytes reverified against publisher provenance. Arbitrary command replacement was removed. Local imports instead require a native dialog and one-time path/hash-bound approval held in main-process memory. `DIONE_PUBLISHER_TRUST_STORE` and signed catalog metadata must be deployed; without them remote execution intentionally fails closed. |
+| C-08 | Resolved (deployment prerequisite) | Remote manifests require strict versioned schema/capabilities, SHA-256, an immutable commit, a trusted Ed25519 publisher key, and a signature binding hash/source/commit. Downloads use private staging and execute only reverified bytes. Release attestation validates a frozen count-bearing catalog snapshot and every signed record, and remote installs default off unless a public-key-only trust store is bundled. The real trust store and signed catalog must still be deployed and pass live attestation; otherwise production release or remote execution intentionally fails closed. |
 
 ### Verification performed
 
@@ -143,11 +157,11 @@ The code-level remediation for C-01 through C-08 is complete. All critical explo
 - Focused Ed25519 trust test covering valid signed load, tamper rejection, local hash-bound approval, and nonce replay rejection
 - Static negative searches for generic IPC/webview/no-sandbox patterns, renderer bearer-token exposure, unsigned command replacement, and removed database mutation routes
 
-The **24/100 score remains the historical baseline**. The current code-level score is **82/100**, with explicit deductions for deployment-side trust/RLS prerequisites, conditional High findings, defense-in-depth caveats, and missing broad behavioral test coverage.
+The **24/100 score remains the historical baseline**. The current code-level score is **94/100**, with explicit deductions for live deployment attestation, OS-level containment limits, defense-in-depth caveats, and remaining end-to-end coverage gaps.
 
 ## High-severity remediation update — July 28, 2026
 
-The four parallel High-remediation tracks were integrated on `main` as commits `f8dc3a9`, `7d8f38d`, `790bf81`, and `309e8e0`. H-01 through H-23 are resolved at the code boundary except H-12, which is intentionally partial because unverifiable platform artifacts were disabled, and H-23, which retains two duplicate upstream React Router advisories without a published fixed forward release. This table is authoritative; the detailed High sections below remain as baseline evidence.
+The initial four High-remediation tracks were integrated as commits `f8dc3a9`, `7d8f38d`, `790bf81`, and `309e8e0`. Subsequent hardening restored verified cross-platform installers, replaced the vulnerable router dependency, propagated request cancellation, and added process/runtime tests. H-01 through H-23 now have code-level remediation or secure fail-closed handling. H-06 retains an OS ownership limitation and H-12 retains an intentionally unsupported CUDA Linux path. This table is authoritative; the detailed High sections below remain as baseline evidence.
 
 | Finding | Status | Remediation |
 |---|---|---|
@@ -156,24 +170,24 @@ The four parallel High-remediation tracks were integrated on `main` as commits `
 | H-03 | Resolved | Remote/local download, installation, cancellation, unsupported-system, malformed-dependency, and start failures now propagate as structured failures; routes report success only after successful completion. |
 | H-04 | Previously resolved | Per-install failures propagate without terminating Electron. |
 | H-05 | Resolved | Replaced module-global cancellation with app/operation-scoped `AbortController` ownership. |
-| H-06 | Resolved with residual | Owned PTYs, direct children, Ollama, and discoverable descendants use graceful stop, bounded wait, escalation, and shutdown cleanup. A deliberately daemonized child that reparents before any stop request cannot be rediscovered without OS job/process-group ownership. |
+| H-06 | Resolved with OS residual | Owned Unix PTYs and Ollama processes use new sessions/process groups, re-enumeration, graceful stop, bounded wait, and escalation. Windows uses bounded CIM/ConPTY discovery and descendant cleanup verified under Node 22 and Electron 41 in hosted-Windows CI. Electron/node-pty cannot launch suspended and assign a Job Object before execution, so rapid Windows detach/reparent and deliberate Unix `setsid()` escape remain outside a kernel-enforced ownership boundary. |
 | H-07 | Previously resolved | Replacement cancellation-map cleanup remains identity checked. |
 | H-08 | Resolved | Captured output is bounded to 1 MiB, socket output uses a bounded/rate-limited 64 KiB queue, and commands have signed-manifest-bounded deadlines. |
 | H-09 | Resolved | Removed shell-text `cd` parsing; structured working directories are canonicalized and contained beneath the application root. |
 | H-10 | Resolved | Environment names/types/Python versions and paths are validated; uv and Conda use direct executable argument arrays, with one platform shell retained only for publisher-signed command bodies. |
 | H-11 | Resolved | Removed process-global filesystem monkey-patching; uninstall deletions are explicit and awaited. |
-| H-12 | **Partially resolved, fail closed** | Enabled installer paths use immutable metadata, exact host/redirect policies, size limits, private staging, SHA-256 before promotion, and exact-signer Authenticode where appropriate. Unverifiable FFmpeg paths, Node Linux/macOS bundles, Ollama Linux/macOS bundles, and CUDA Linux are disabled rather than assigned invented trust metadata. |
+| H-12 | Resolved for supported paths; CUDA Linux fails closed | Enabled installer paths use versioned metadata, exact host/redirect policies, size limits, private staging, SHA-256 before promotion, and exact-signer Authenticode where appropriate. Verified Node, Ollama, and FFmpeg Linux/macOS paths were restored through pinned checksums and bounded tar.gz/tar.zst handling. CUDA Linux remains disabled because the vendor publishes only MD5 for the selected runfile. |
 | H-13 | Resolved for enabled archive paths | Verified archives are preflighted for traversal, links/reparse/special entries, malformed ZIP structures, duplicates, sparse metadata, encryption, overlap, member/expanded-size limits, and compression bombs; extraction is shell-free into private staging with postflight validation. |
 | H-14 | Resolved | Dependency installers use direct executable/argument-array invocation without `shell: true`; ad hoc installer HTTP clients were replaced by the verified-artifact path. |
 | H-15 | Resolved with C-04 | Preview content is loopback-restricted and isolated in hardened, sandboxed web content without preload capabilities, mixed-content allowance, or automatic media permissions. |
 | H-16 | Resolved | Preview polling is keyed, guarded before its first await, abortable, deadline-bound, generation-owned, and cleaned on disconnect/unmount. |
 | H-17 | Resolved | Critical renderer mutations pass through a typed throwing non-2xx boundary before success-state changes. |
 | H-18 | Resolved | Failed uninstall/deletion returns before local state removal and refreshes authoritative installed, quick-launch, and library state. |
-| H-19 | Resolved | Script sockets disable automatic reconnection, use generation/identity ownership, dispose listeners/timers/manager state explicitly, and read current keyed state. IPC backend calls do not yet forward `RequestInit.signal`; generation ownership discards stale workspace results. |
+| H-19 | Resolved | Script sockets disable automatic reconnection, use generation/identity ownership, dispose listeners/timers/manager state explicitly, and read current keyed state. Renderer `AbortSignal` now propagates through typed preload/main IPC to owner-bound backend request controllers with listener cleanup and late-completion rejection. |
 | H-20 | Previously resolved | Keyed app-state updates merge rather than replacing unrelated applications' state. |
 | H-21 | Resolved | Reports require a server-generated sanitized preview and explicit per-send consent; safe-field allowlists, recursive secret/path redaction, depth/count/size caps, and backend re-sanitization are enforced. Stable machine IDs were removed, and debug export is a private bounded text report rather than a broad ZIP. |
 | H-22 | Resolved with C-03/C-04 | External navigation is HTTPS-only, preview URLs are loopback validated, and secondary content is sandboxed without a generic renderer-controlled window capability. |
-| H-23 | **Conditionally resolved** | Production advisories fell from 28 (1 critical, 14 high, 9 moderate, 4 low) to 2 high entries, both the same React Router RSC/server-action CSRF advisory. Dione uses CSR `HashRouter`, not the affected RSC path. npm names nonexistent 8.3.0 as the forward fix; latest 7.18.1 remains flagged, so no safe published forward fix currently exists. |
+| H-23 | Resolved | React Router was removed and replaced by a tested `wouter` hash-router compatibility layer because no fixed React Router release existed. Runtime and development dependency chains were upgraded or compatibly overridden; both full `npm audit` and `npm audit --omit=dev` report 0 vulnerabilities. |
 
 ### Combined High-remediation verification
 
@@ -182,10 +196,10 @@ The four parallel High-remediation tracks were integrated on `main` as commits `
 - `npm run check-licenses`
 - `npm run check-installer-security`, including deterministic SHA mismatch and malicious tar/ZIP fixtures
 - `npm run build` after every rebase; Electron 41 unpack and native-module packaging also passed in the dependency track
-- `npm audit --omit=dev`: 0 critical, 2 high, 0 moderate, 0 low
+- Full `npm audit` and `npm audit --omit=dev`: 0 findings
 - Live cross-checks of 25 GitHub artifact digests, three Node vendor checksums, six Miniconda checksums, and the pinned Visual Studio Build Tools object
 
-No repository test framework is configured. The new installer security fixtures are deterministic executable checks; the remaining validation is static analysis, typechecking, packaging, targeted assertions, and production builds.
+The repository now has 47 deterministic Node/tsx tests, comprehensive Biome enforcement, installer attack fixtures, deployment self-tests, process-ownership checks, Linux builds, and hosted-Windows Node/Electron runtime cleanup checks. Full packaged-Electron end-to-end behavior and the real external deployment remain outside deterministic repository testing.
 
 ## Baseline top 10 highest-impact issues
 
@@ -634,6 +648,7 @@ if (activeInstallations.get(id) === controller) {
 
 ## H-21 — Diagnostic reporting leaks logs and persistent device identity
 
+- **Status:** Resolved. Reports require sanitized preview and per-send consent, stable machine identifiers were removed, fields and sizes are bounded, and the backend re-sanitizes submissions.
 - **Category:** Privacy, secrets
 - **Files:** `src/renderer/src/utils/discord-webhook.ts:42-108`, `src/main/utils/export-logs.ts:13-184`
 - **Description:** Reports include full logs, stack traces, application details, and a stable computer identifier without a centralized redaction pass.
@@ -643,7 +658,7 @@ if (activeInstallations.get(id) === controller) {
 
 ## H-22 — External URL schemes and arbitrary windows are accepted
 
-- **Status:** Partially remediated on July 27, 2026. Renderer and main-process OS link flows now permit HTTPS only; the separate renderer-controlled `new-window` IPC still requires an origin allowlist.
+- **Status:** Resolved with C-03/C-04. External navigation is HTTPS-only, preview URLs are loopback validated, and secondary content is sandboxed without a generic renderer-controlled window capability.
 - **Category:** Electron/OS integration
 - **Files:** `src/renderer/src/utils/open-link.ts:1-10`, `src/main/index.ts:895-903,1290-1314`
 - **Description:** OS external-link paths now reject malformed and non-HTTPS URLs. However, the renderer can still request a new Electron window for an arbitrary URL without an explicit host allowlist.
@@ -653,6 +668,7 @@ if (activeInstallations.get(id) === controller) {
 
 ## H-23 — Runtime dependency vulnerabilities
 
+- **Status:** Resolved. React Router was replaced, development and runtime dependency chains were upgraded, and full plus production npm audits report zero findings.
 - **Category:** Dependencies, supply chain
 - **Files:** `package.json`, `package-lock.json`
 - **Description:** Lockfile audit reports 28 production vulnerabilities: 1 critical, 14 high, 9 moderate, and 4 low.
@@ -785,9 +801,11 @@ Some advisories are build-only or affect unused methods, but the following are d
 
 # Testing assessment
 
-The repository has no configured automated test framework, no `test` script, and no test/spec files. Type checking and builds cannot verify security boundaries, concurrency, lifecycle, or cross-process contracts.
+At baseline, the repository had no configured automated test framework, `test` script, or test/spec files. The recommendations below are retained as the original audit record.
 
-## Highest-priority tests to add
+Post-remediation, `npm test` runs 47 deterministic tests covering authentication, Socket.IO ticket expiry/replay/scope, middleware ordering, all renderer-to-main capabilities, request cancellation ownership, manifest trust and tampering, privacy boundaries, path containment, deadlines, and real Linux process-group termination. CI also runs comprehensive Biome/type/license/installer checks, production builds, deployment fixtures, and Windows Node/Electron PTY cleanup. Remaining gaps are a launched packaged-Electron end-to-end suite, live production deployment attestation, and kernel-enforced Windows child ownership.
+
+## Baseline highest-priority tests to add
 
 1. **HTTP and Socket.IO security**
    - Loopback-only binding.
