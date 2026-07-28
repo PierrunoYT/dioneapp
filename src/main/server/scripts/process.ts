@@ -314,35 +314,34 @@ async function releaseOwnershipWhenSessionExits(
 }
 
 async function getOwnedProcessTree(pid: number): Promise<number[]> {
+	if (process.platform === "win32") {
+		try {
+			const script =
+				"$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress";
+			const stdout = await new Promise<string>((resolve, reject) => {
+				execFile(
+					"powershell.exe",
+					["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+					{ timeout: 3_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+					(error, output) => {
+						if (error) reject(error);
+						else resolve(output);
+					},
+				);
+			});
+			return collectWindowsProcessTree(
+				pid,
+				parseWindowsProcessEntries(JSON.parse(stdout)),
+			);
+		} catch (error) {
+			logger.warn(`Failed to enumerate Windows process tree ${pid}: ${error}`);
+		}
+		return isProcessAlive(pid) ? [pid] : [];
+	}
 	try {
 		const pids = await pidtree(pid, { root: true });
 		return Array.from(new Set(pids.filter(Number.isSafeInteger)));
 	} catch {
-		if (process.platform === "win32") {
-			try {
-				const script =
-					"$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress";
-				const stdout = await new Promise<string>((resolve, reject) => {
-					execFile(
-						"powershell.exe",
-						["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
-						{ timeout: 3_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
-						(error, output) => {
-							if (error) reject(error);
-							else resolve(output);
-						},
-					);
-				});
-				return collectWindowsProcessTree(
-					pid,
-					parseWindowsProcessEntries(JSON.parse(stdout)),
-				);
-			} catch (error) {
-				logger.warn(
-					`Failed to enumerate Windows process tree ${pid}: ${error}`,
-				);
-			}
-		}
 		return isProcessAlive(pid) ? [pid] : [];
 	}
 }

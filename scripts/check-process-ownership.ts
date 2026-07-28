@@ -6,7 +6,6 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import * as pty from "@lydell/node-pty";
-import pidtree from "pidtree";
 import {
 	buildProcessSignalPlan,
 	collectWindowsProcessTree,
@@ -96,12 +95,6 @@ async function main(): Promise<void> {
 		let childPid: number | undefined;
 		try {
 			childPid = await waitForFile(childPidFile);
-			const discovered = await pidtree(terminal.pid, { root: true });
-			assert.ok(
-				discovered.includes(childPid),
-				"pidtree discovers a descendant launched through ConPTY",
-			);
-
 			const script =
 				"$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress";
 			const { stdout } = await execFileAsync(
@@ -138,6 +131,11 @@ async function main(): Promise<void> {
 				} catch {
 					// Best-effort test cleanup after the assertion failure is reported.
 				}
+			}
+			try {
+				terminal.kill();
+			} catch {
+				// The taskkill verification may already have closed ConPTY.
 			}
 			await fs.promises.rm(directory, { recursive: true, force: true });
 		}
