@@ -2,9 +2,9 @@ import "@assets/main.css";
 
 import App from "@/App";
 import { TranslationProvider } from "@/translations/translation-context";
+import { HashRouter } from "@/utils/router";
 import { ToastProvider } from "@/utils/use-toast";
 import ReactDOM from "react-dom/client";
-import { HashRouter } from "react-router-dom";
 import { AIContextProvider } from "./components/contexts/ai-context";
 import { ScriptsContext } from "./components/contexts/scripts-context";
 

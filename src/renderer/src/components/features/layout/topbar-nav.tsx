@@ -4,6 +4,7 @@ import Icon from "@/components/icons/icon";
 import { IconButton, Modal, ModalBody } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch } from "@/utils/api";
+import { Link, useLocation } from "@/utils/router";
 import {
 	DndContext,
 	PointerSensor,
@@ -30,7 +31,6 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
 
 export default function TopbarNav() {
 	const { t } = useTranslation();

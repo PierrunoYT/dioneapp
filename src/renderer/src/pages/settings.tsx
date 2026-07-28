@@ -8,10 +8,10 @@ import OtherTab from "@/components/features/settings/tabs/other-tab";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, apiJson, getBackendPort } from "@/utils/api";
 import { joinPath } from "@/utils/path";
+import { useNavigate } from "@/utils/router";
 import { useToast } from "@/utils/use-toast";
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useScriptsContext } from "../components/contexts/scripts-context";
 
 export default function Settings() {

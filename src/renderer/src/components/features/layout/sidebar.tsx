@@ -7,6 +7,7 @@ import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { isConfig, readStoredJson } from "@/utils/local-storage";
 import { openLink } from "@/utils/open-link";
+import { Link } from "@/utils/router";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
@@ -20,7 +21,6 @@ import { AnimatePresence } from "framer-motion";
 import { Camera, Clock, Library, Settings, X } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 
 export default function Sidebar() {
 	const { t } = useTranslation();

@@ -9,6 +9,7 @@ import type {
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, apiRequest, getBackendPort } from "@/utils/api";
 import { isArray, readStoredJson } from "@/utils/local-storage";
+import { useLocation, useNavigate } from "@/utils/router";
 import { useToast } from "@/utils/use-toast";
 import type { Terminal } from "@xterm/xterm";
 import {
@@ -20,7 +21,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import type { Socket } from "socket.io-client";
 
 const AppContext = createContext<ScriptsContextType | undefined>(undefined);

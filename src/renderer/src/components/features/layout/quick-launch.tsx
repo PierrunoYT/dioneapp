@@ -2,10 +2,10 @@ import { useScriptsContext } from "@/components/contexts/scripts-context";
 import GeneratedIcon from "@/components/icons/generated-icon";
 import { useTranslation } from "@/translations/translation-context";
 import { useCustomDrag } from "@/utils/quick-launch/use-custom-drag";
+import { Link } from "@/utils/router";
 import { AnimatePresence, type Variants, motion } from "framer-motion";
 import { Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 export default function QuickLaunch({
 	compactMode,
@@ -157,7 +157,7 @@ export default function QuickLaunch({
 								pathname: `/install/${app.isLocal ? app.name : app.id}`,
 								search: `?isLocal=${app.isLocal}`,
 							}}
-							className={`h-full w-full flex items-center justify-center`}
+							className="h-full w-full flex items-center justify-center"
 						>
 							{app.logo_url?.startsWith("http") ? (
 								<img
@@ -289,7 +289,7 @@ export default function QuickLaunch({
 													className="flex flex-col items-center p-3 rounded-xl transition-colors w-full cursor-pointer"
 												>
 													<motion.div
-														className={`h-16 w-16 mb-2 border border-white/10 hover:border-white/20 transition-all duration-200 rounded-xl flex items-center justify-center overflow-hidden`}
+														className="h-16 w-16 mb-2 border border-white/10 hover:border-white/20 transition-all duration-200 rounded-xl flex items-center justify-center overflow-hidden"
 														whileHover={{ scale: 1.05 }}
 														whileTap={{ scale: 0.95 }}
 													>

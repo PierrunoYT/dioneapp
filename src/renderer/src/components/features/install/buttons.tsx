@@ -1,7 +1,7 @@
 import { Button, IconButton } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
+import { useNavigate } from "@/utils/router";
 import { ArrowLeft, Bookmark, Share2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 export default function Buttons({
 	user,

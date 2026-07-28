@@ -5,8 +5,8 @@ import Icon from "@/components/icons/icon";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { isArrayRecord, readStoredJson } from "@/utils/local-storage";
+import { Link } from "@/utils/router";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 
 export default function Installed() {
 	const { t } = useTranslation();

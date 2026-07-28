@@ -3,9 +3,9 @@ import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { sendDiscordReport } from "@/utils/discord-webhook";
 import { openLink } from "@/utils/open-link";
+import { useNavigate } from "@/utils/router";
 import { CheckCircle, Loader2, TvMinimal, XCircle } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 export default function ErrorPage({ error }: { error?: Error }) {
 	const { t } = useTranslation();

@@ -14,9 +14,9 @@ import Report from "@/pages/report";
 import Settings from "@/pages/settings";
 import { apiJson } from "@/utils/api";
 import { isConfig, readStoredJson } from "@/utils/local-storage";
+import { useLocation, useNavigate } from "@/utils/router";
 import { initializeTheme } from "@/utils/theme";
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 
 function App() {
 	const location = useLocation();

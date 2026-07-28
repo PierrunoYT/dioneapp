@@ -1,6 +1,7 @@
 import logo from "@/assets/logo.png";
 import type { Script } from "@/components/features/home/feed/types";
 import GeneratedIcon from "@/components/icons/generated-icon";
+import { Link } from "@/utils/router";
 import { useOnlineStatus } from "@/utils/use-online-status";
 import {
 	BadgeCheck,
@@ -11,7 +12,6 @@ import {
 	Trash,
 } from "lucide-react";
 import { memo } from "react";
-import { Link } from "react-router-dom";
 
 interface ScriptCardProps {
 	script: Script;

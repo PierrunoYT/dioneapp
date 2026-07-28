@@ -4,6 +4,7 @@ import { Textarea } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { openLink } from "@/utils/open-link";
 import { reportBadContent } from "@/utils/report-bad-content";
+import { useNavigate } from "@/utils/router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	ArrowLeft,
@@ -22,7 +23,6 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../../../utils/api";
 
 interface ActionsProps {

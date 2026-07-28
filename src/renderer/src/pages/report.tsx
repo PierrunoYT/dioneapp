@@ -1,9 +1,9 @@
 import { Button, Textarea } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
 import { sendDiscordReport } from "@/utils/discord-webhook";
+import { useNavigate } from "@/utils/router";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 export default function ReportPage() {
 	const navigate = useNavigate();

@@ -120,7 +120,6 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | content-type | 1.0.5 | MIT |
 | content-type | 2.0.0 | MIT |
 | cookie | 0.7.2 | MIT |
-| cookie | 1.1.1 | MIT |
 | cookie-signature | 1.2.2 | MIT |
 | cors | 2.8.6 | MIT |
 | crc-32 | 1.2.2 | Apache-2.0 |
@@ -318,6 +317,7 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | minimist | 1.2.8 | MIT |
 | minimisted | 2.0.1 | MIT |
 | minipass | 7.1.3 | BlueOak-1.0.0 |
+| mitt | 3.0.1 | MIT |
 | monaco-editor | 0.53.0 | MIT |
 | motion-dom | 12.38.0 | MIT |
 | motion-utils | 12.36.0 | MIT |
@@ -362,12 +362,11 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | react | 19.2.1 | MIT |
 | react-dom | 19.2.1 | MIT |
 | react-markdown | 10.1.0 | MIT |
-| react-router | 7.18.1 | MIT |
-| react-router-dom | 7.18.1 | MIT |
 | react-syntax-highlighter | 16.1.1 | MIT |
 | readable-stream | 3.6.2 | MIT |
 | readable-stream | 4.7.0 | MIT |
 | refractor | 5.0.0 | MIT |
+| regexparam | 3.0.0 | MIT |
 | rehype-raw | 7.0.0 | MIT |
 | rehype-sanitize | 6.0.0 | MIT |
 | remark-gfm | 4.0.1 | MIT |
@@ -392,7 +391,6 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | send | 1.2.1 | MIT |
 | serialize-error | 7.0.1 | MIT |
 | serve-static | 2.2.1 | MIT |
-| set-cookie-parser | 2.7.2 | MIT |
 | set-function-length | 1.2.2 | MIT |
 | setprototypeof | 1.2.0 | ISC |
 | sha.js | 2.4.12 | (MIT AND BSD-3-Clause) |
@@ -448,6 +446,7 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | universalify | 0.1.2 | MIT |
 | universalify | 2.0.1 | MIT |
 | unpipe | 1.0.0 | MIT |
+| use-sync-external-store | 1.6.0 | MIT |
 | util-deprecate | 1.0.2 | MIT |
 | vary | 1.1.2 | MIT |
 | vfile | 6.0.3 | MIT |
@@ -459,6 +458,7 @@ This deterministic inventory is generated from `package-lock.json`. Dependency c
 | which-typed-array | 1.1.20 | MIT |
 | winston | 3.19.0 | MIT |
 | winston-transport | 4.9.0 | MIT |
+| wouter | 3.10.0 | Unlicense |
 | wrap-ansi | 7.0.0 | MIT |
 | wrappy | 1.0.2 | ISC |
 | ws | 8.21.1 | MIT |

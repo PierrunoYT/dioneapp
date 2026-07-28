@@ -1,6 +1,6 @@
 import { apiFetch } from "@/utils/api";
+import { useNavigate } from "@/utils/router";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useScriptsContext } from "./scripts-context";
 import type { AIContextType } from "./types/context-types";
 

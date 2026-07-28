@@ -1,5 +1,6 @@
 import NetworkShareModal from "@/components/features/modals/network-share";
 import { useTranslation } from "@/translations/translation-context";
+import { useNavigate } from "@/utils/router";
 import { motion } from "framer-motion";
 import {
 	Activity,
@@ -13,7 +14,6 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 interface IframeProps {
 	iframeSrc: string;

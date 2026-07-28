@@ -6,9 +6,9 @@ import NotSupported from "@/components/features/install/not-supported";
 import DeleteLoadingModal from "@/components/features/modals/delete-loading";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson, apiRequest } from "@/utils/api";
+import { useNavigate } from "@/utils/router";
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
 	useScriptsContext,
 	useScriptsLogsContext,

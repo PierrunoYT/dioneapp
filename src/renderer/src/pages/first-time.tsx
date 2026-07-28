@@ -5,9 +5,9 @@ import Titlebar from "@/components/features/layout/titlebar";
 import Icon from "@/components/icons/icon";
 import { Button } from "@/components/ui";
 import { useTranslation } from "@/translations/translation-context";
+import { Link } from "@/utils/router";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 export default function FirstTime() {
 	const { t } = useTranslation();
@@ -101,7 +101,7 @@ export default function FirstTime() {
 						<div className="flex flex-col gap-4 justify-center items-center transition-all duration-500">
 							<Icon name="Dio" className="w-20 h-20 mb-2" />
 							<h1 className="text-6xl font-semibold flex">
-								{t("firstTime.welcome.title") + " "}
+								{`${t("firstTime.welcome.title")} `}
 								<div className="mx-2" />
 								{Array.from("Dione").map((char, i) => (
 									<motion.span

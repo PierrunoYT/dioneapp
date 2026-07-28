@@ -2,10 +2,10 @@ import type { Script } from "@/components/features/home/feed/types";
 import { useTranslation } from "@/translations/translation-context";
 import { apiJson } from "@/utils/api";
 import { FeedCache } from "@/utils/cache";
+import { useNavigate } from "@/utils/router";
 import { useOnlineStatus } from "@/utils/use-online-status";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 export default function FeaturedCarousel() {
 	const { t } = useTranslation();
