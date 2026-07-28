@@ -91,8 +91,7 @@ export default function IframeComponent({
 	useEffect(() => {
 		const updateSystemUsage = async () => {
 			try {
-				const usage =
-					await window.electron.ipcRenderer.invoke("get-system-usage");
+				const usage = await window.dione.getSystemUsage();
 				setSystemUsage(usage);
 			} catch (error) {
 				console.error("Failed to get system usage", error);
@@ -109,8 +108,7 @@ export default function IframeComponent({
 	useEffect(() => {
 		const updateTunnelInfo = async () => {
 			try {
-				const tunnel =
-					await window.electron.ipcRenderer.invoke("get-current-tunnel");
+				const tunnel = await window.dione.getCurrentTunnel();
 				setTunnelInfo(tunnel);
 			} catch (error) {
 				console.error("Failed to get tunnel info", error);
@@ -122,7 +120,7 @@ export default function IframeComponent({
 
 	const handleEnterFullscreen = () => {
 		try {
-			window.electron.ipcRenderer.send("new-window", iframeSrc);
+			window.dione.openPreview(iframeSrc);
 		} catch (err) {
 			console.error("Failed to open preview window", err);
 		}
@@ -130,7 +128,7 @@ export default function IframeComponent({
 
 	const handleExitFullscreen = () => {
 		try {
-			window.electron.ipcRenderer.send("close-preview-window");
+			window.dione.closePreview();
 			localStorage.removeItem("isFullscreen");
 			setIsFullscreen(false);
 		} catch (err) {
@@ -148,69 +146,37 @@ export default function IframeComponent({
 		const container = containerRef.current;
 		if (container && iframeSrc) {
 			container.innerHTML = "";
-
-			// create regular webview with download support
-			const webview = document.createElement("webview") as Electron.WebviewTag;
-			webview.setAttribute("allowpopups", "");
-			webview.setAttribute("webpreferences", "allowRunningInsecureContent");
-			webview.id = "iframe";
-			webview.style.width = "100%";
-			webview.style.height = "100%";
-			webview.style.border = "0";
-			webview.partition = "persist:webview";
-			webview.useragent =
-				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
-
-			// custom scrollbar styles
-			webview.addEventListener("dom-ready", () => {
-				webview.insertCSS(`
-				::-webkit-scrollbar {
-					width: 6px;
-				}
-
-				::-webkit-scrollbar-thumb:hover,
-				::-webkit-scrollbar-thumb:active {
-					background: rgba(255, 255, 255, 0.4);
-				}
-
-				::-webkit-scrollbar:hover {
-					background: rgba(255, 255, 255, 0.2);
-				}
-
-				::-webkit-scrollbar-track {
-					background: rgba(255, 255, 255, 0.1);
-				}
-
-				::-webkit-scrollbar-thumb {
-					background: rgba(255, 255, 255, 0.2);
-				}
-			`);
-			});
-
-			webview.addEventListener("permissionrequest", (event: any) => {
-				const permission = event.permission;
+			try {
+				const url = new URL(iframeSrc);
 				if (
-					permission === "media" ||
-					permission === "audioCapture" ||
-					permission === "videoCapture"
-				) {
-					event.request.allow();
-				} else {
-					event.request.deny();
-				}
-			});
-
-			webview.src = iframeSrc;
-			container.appendChild(webview);
+					url.protocol !== "http:" ||
+					(url.hostname !== "localhost" && url.hostname !== "127.0.0.1")
+				)
+					return;
+				const iframe = document.createElement("iframe");
+				iframe.id = "iframe";
+				iframe.style.cssText = "width:100%;height:100%;border:0";
+				iframe.sandbox.add(
+					"allow-forms",
+					"allow-modals",
+					"allow-scripts",
+					"allow-same-origin",
+				);
+				iframe.referrerPolicy = "no-referrer";
+				iframe.src = url.toString();
+				container.appendChild(iframe);
+			} catch {
+				console.error("Rejected invalid preview URL");
+			}
 		}
 	}, [iframeSrc]);
 
 	const handleReloadIframe2 = () => {
 		const container = containerRef.current;
 		if (container) {
-			const webview = container.querySelector("webview") as Electron.WebviewTag;
-			if (webview) {
-				webview.reload();
+			const iframe = container.querySelector("iframe");
+			if (iframe) {
+				iframe.src = iframe.src;
 			}
 		}
 	};
@@ -280,7 +246,7 @@ export default function IframeComponent({
 
 				{/* Title and Description */}
 				<div className="flex items-center justify-center gap-3 flex-1 px-4 min-w-0">
-					{data?.logo_url && data?.logo_url?.startsWith("http") && (
+					{data?.logo_url?.startsWith("http") && (
 						<img
 							src={data.logo_url}
 							alt={data.title || data.name}

@@ -1,12 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { removeValue } from "@/server/scripts/dependencies/environment";
-import { resolveScriptPaths } from "@/server/scripts/utils/paths";
+import { resolveCanonicalAppPath } from "@/server/scripts/utils/paths";
 import type { Response } from "express";
 
 export async function deleteScript(name: string, res: Response) {
 	try {
-		const { workingDir: appDir } = resolveScriptPaths(name);
+		const appDir = await resolveCanonicalAppPath(name, { mustExist: true });
 		const dioneFile = path.join(appDir, "dione.json");
 		const dioneData = await fs.readFile(dioneFile, "utf-8");
 		const dioneJson = JSON.parse(dioneData);
@@ -16,7 +16,7 @@ export async function deleteScript(name: string, res: Response) {
 				name?: string;
 				env?: { name?: string };
 			}>
-		).find((dep) => dep.env && dep.env.name);
+		).find((dep) => dep.env?.name);
 		const envName = envDep?.env?.name;
 		const envPath = envName ? path.join(appDir, envName, "Scripts") : undefined;
 

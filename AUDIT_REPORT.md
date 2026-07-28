@@ -10,9 +10,9 @@
 
 This audit covered every tracked file in the repository—approximately 66,961 lines—including the Electron main process and preload, Express and Socket.IO backend, installation and process-management subsystem, renderer, AI/Ollama integration, Supabase routes, build and packaging configuration, CI/CD, scripts, translations, dependencies, and documentation.
 
-The dominant problem is architectural: Dione exposes filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an HTTP/Socket.IO control plane that has no authentication and permissive CORS. The server now binds to loopback, reducing network exposure without protecting it from local processes or malicious browser content. At the same time, the Electron renderer receives a broad generic IPC bridge, remote webviews receive powerful capabilities, and Chromium sandbox/web-security protections are weakened.
+At the baseline audit, the dominant problem was architectural: Dione exposed filesystem access, native command execution, software installation, database mutation, AI tools, and process management through an unauthenticated HTTP/Socket.IO control plane, while the renderer had a generic IPC bridge and Chromium hardening was disabled. The July 28 critical-remediation pass replaced those boundaries with authenticated loopback transport, a sender-checked typed preload, sandboxed web content, canonical path enforcement, and fail-closed manifest trust. The baseline findings and score remain below as historical evidence; the remediation tables are authoritative for current status.
 
-These weaknesses compound each other. A renderer compromise, malicious local website, local process, exposed tunnel client, prompt injection, or compromised script repository may be able to reach native operating-system capabilities.
+At baseline, these weaknesses compounded each other: a renderer compromise, malicious local website, local process, exposed tunnel client, prompt injection, or compromised script repository could potentially reach native operating-system capabilities.
 
 ### Consolidated finding count
 
@@ -88,13 +88,39 @@ The code-level remediation for M-01 through M-21 is complete. M-02 and M-20 were
 | M-17 | Resolved | Feed and featured requests abort or ignore stale completions, and the carousel resets its index when an accepted slide set changes. |
 | M-18 | Resolved | Audit-identified local-storage reads now use a shared parser with shape validation, invalid-value removal, and fresh defaults. |
 | M-19 | Resolved | Settings use serialized partial PATCH operations; reset is in the same recovered queue, blocks later writes, clears only owned keys, and navigates only after confirmation. |
-| M-20 | Previously resolved | Settings reset continues to await session termination before navigation. |
+| M-20 | Superseded by C-07 remediation | The spoofable session telemetry API and its renderer/main-process callers were removed, so settings reset no longer has a session operation to await. |
 | M-21 | Resolved | Runtime translation lookup falls back to English, locale selection is validated, and CI checks every locale for invalid or unknown schema entries. |
 | M-22 | **Conditionally resolved** | Build-time webhook and privileged API-token injection was removed. Bundled Supabase values are explicitly public URL/anonymous credentials; reports pass through the backend and privileged service access uses optional runtime-only `DIONE_API_KEY`. Confirm that the deployed key is truly anonymous and that RLS is enabled and tested for every reachable table before closing this finding. |
 
-The **24/100 health score remains the historical audit baseline**; it has not been recalculated. This remediation does not certify the application as secure, and the unresolved critical and high findings still dominate overall risk. The medium-finding table below is retained as the original baseline evidence and recommendation record; current status is authoritative in this remediation update.
+The **24/100 health score remains the historical audit baseline**; it has not been recalculated. At this point in the remediation history, critical and high findings still dominated overall risk. The medium-finding table below is retained as the original baseline evidence and recommendation record; the latest remediation update is authoritative for current status.
 
-## Top 10 highest-impact issues
+## Critical-severity remediation update — July 28, 2026
+
+The code-level remediation for C-01 through C-08 is complete. All critical exploit classes identified by the baseline audit now fail closed. This is not a general security certification: high-severity findings and defense-in-depth work remain, and publisher deployment must provide a valid trust store plus signed catalog metadata before remote installation works.
+
+| Finding | Status | Remediation |
+|---|---|---|
+| C-01 | Resolved | The backend remains loopback-only, requires a process-lifetime 256-bit bearer token on every HTTP request, restricts CORS to the renderer origin, and uses one-time, one-minute, app-bound Socket.IO tickets. The bearer token stays in the main process rather than renderer JavaScript. |
+| C-02 | Resolved | A single strict application-ID grammar now rejects traversal, separators, absolute paths, control characters, and unsupported names. Existing app directories are required to be canonical, direct, non-symlink children of the configured apps root. Creation, download, local import, and deletion use the same boundary. |
+| C-03 | Resolved | Generic `window.electron`, `window.api`, arbitrary `ipcRenderer`, and renderer-selected raw backend path/method access were removed. A frozen typed `window.dione` surface is sender/main-frame checked; backend calls use a closed operation allowlist mapped in main to fixed methods and route templates with validated parameters. Backend credentials are not exposed, and local native execution requires a main-process confirmation dialog. |
+| C-04 | Resolved | Main and preview content now run with Chromium sandboxing, context isolation, web security, no insecure-content allowance, and no webview tag. The development command no longer passes `--noSandbox`; remote preview content has no preload capabilities. |
+| C-05 | Resolved | File workspaces are selected only from canonical server-enumerated app roots. Path components and symlinks are rejected, reads/writes are bounded to the canonical root, and sensitive leaf writes use no-follow handles or exclusive random staging plus atomic replacement. Concurrent hostile filesystem mutation remains a defense-in-depth hardening area on platforms without complete no-follow primitives, not the original request-driven escape. |
+| C-06 | Resolved | AI reads require a server-selected project ID, canonical non-symlink containment, relative component validation, an extension allowlist, sensitive-name blocking, a 32 KiB size limit, and reading through the validated open file handle. |
+| C-07 | Resolved | The renderer-triggered Supabase update and caller-identified event APIs were removed, as was the obsolete renderer telemetry utility. The remaining database routes are read-only. |
+| C-08 | Resolved (deployment prerequisite) | Remote manifests now require strict versioned schema/capabilities, SHA-256, an immutable 40-character commit, a trusted Ed25519 publisher key, and a signature binding hash/source/commit. Downloads use exclusive random staging; startup/install/update execute the exact parsed bytes reverified against publisher provenance. Arbitrary command replacement was removed. Local imports instead require a native dialog and one-time path/hash-bound approval held in main-process memory. `DIONE_PUBLISHER_TRUST_STORE` and signed catalog metadata must be deployed; without them remote execution intentionally fails closed. |
+
+### Verification performed
+
+- `npm run typecheck`
+- Biome formatting and checks on all changed source files
+- `npm run check-licenses`
+- `npm run build`
+- Focused Ed25519 trust test covering valid signed load, tamper rejection, local hash-bound approval, and nonce replay rejection
+- Static negative searches for generic IPC/webview/no-sandbox patterns, renderer bearer-token exposure, unsigned command replacement, and removed database mutation routes
+
+The **24/100 score remains the historical baseline**. It should be recalculated only after the remaining high-severity findings and deployment-side trust/RLS prerequisites are independently verified.
+
+## Baseline top 10 highest-impact issues
 
 | Rank | Severity | Issue | Effort |
 |---:|---|---|---|
@@ -120,7 +146,7 @@ The **24/100 health score remains the historical audit baseline**; it has not be
 - **Files:** `src/main/server/server.ts:13-36`, `src/main/server/routes/setup.ts:16-50`, `src/main/socket/socket.ts:6-24`
 - **Effort:** L
 
-**Status:** Partially remediated. The HTTP server now binds to `127.0.0.1`; authentication, CORS, and Socket.IO authorization remain open.
+**Status:** Resolved in the July 28, 2026 critical-remediation pass. See the authoritative remediation table above.
 
 **Description:** Express enables unrestricted `cors()` and mounts all privileged routers without authentication. Socket.IO accepts `origin: "*"` and lets clients select arbitrary application rooms. The explicit loopback bind reduces LAN exposure but does not protect the API from other local processes or malicious browser content.
 
@@ -162,6 +188,8 @@ io.use((socket, next) => {
 - **Files:** `src/main/server/scripts/utils/paths.ts:14-49`, `src/main/server/scripts/delete.ts:7-40`, `src/main/server/scripts/local.ts:190-225`
 - **Effort:** M
 
+**Status:** Resolved in the July 28, 2026 critical-remediation pass. See the authoritative remediation table above.
+
 **Description:** `sanitizeScriptName()` only trims and replaces whitespace. It accepts `..`, path separators, absolute paths, drive-qualified paths, and control characters. The result is joined beneath `apps` without canonical containment validation.
 
 **Why it matters:** Crafted names can direct installation, metadata writes, command execution, or recursive deletion outside Dione's application directory.
@@ -200,6 +228,8 @@ function resolveAppPath(appsRoot: string, name: string): string {
 - **Files:** `src/preload/index.ts:36-61`, `src/preload/index.d.ts:29-38`, representative handlers in `src/main/index.ts:790-903,1058-1231`
 - **Effort:** L
 
+**Status:** Resolved in the July 28, 2026 critical-remediation pass. See the authoritative remediation table above.
+
 **Description:** The preload exposes Electron Toolkit's complete `electronAPI`, including generic `ipcRenderer.invoke`, `send`, and listener registration. Main-process handlers do not consistently verify `event.senderFrame`, origin, owning window, or payload schemas.
 
 **Why it matters:** A renderer XSS or compromised remote webview can invoke filesystem, process, configuration, tunnel, window, URL, screenshot, and logging operations rather than a small allowlisted API.
@@ -230,6 +260,8 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 - **File:** `src/main/index.ts:211-270`
 - **Effort:** M–L
 
+**Status:** Resolved in the July 28, 2026 critical-remediation pass. See the authoritative remediation table above.
+
 **Description:** The main window uses `sandbox: false` and `webviewTag: true`. Linux additionally disables `webSecurity`, allows insecure content, and uses `no-sandbox`.
 
 **Why it matters:** Renderer XSS, malicious webview content, dependency compromise, or mixed-content substitution receives substantially more power and fewer origin/process protections.
@@ -257,6 +289,8 @@ If remote previews are indispensable, isolate them in `WebContentsView` or a sep
 - **File:** `src/main/server/routes/files.ts:251-334,415-460,576-736`
 - **Effort:** L
 
+**Status:** Resolved for the audited request-driven traversal and symlink-escape class in the July 28, 2026 critical-remediation pass. See the residual cross-platform race caveat in the authoritative table above.
+
 **Description:** Application-root candidates are resolved without proving they remain beneath the configured base. Later checks are mostly lexical. `readFile`, `writeFile`, `rename`, and `rm` follow symlinks.
 
 **Why it matters:** Attackers can select an arbitrary existing directory as a workspace or use an in-root symlink to read, overwrite, rename, or delete external files.
@@ -280,6 +314,8 @@ if (relative.startsWith("..") || path.isAbsolute(relative)) {
 - **File:** `src/main/server/routes/ai/ollama/tools.ts:24-61`
 - **Effort:** M
 
+**Status:** Resolved in the July 28, 2026 critical-remediation pass. See the authoritative remediation table above.
+
 **Description:** Model-controlled `project` and `file` values are joined into filesystem paths without canonical containment checks. Symlinks are followed, and entire file contents become model/tool output.
 
 **Why it matters:** Prompt injection or direct API access can disclose source, credentials, configuration, SSH files, user documents, and other files readable by Electron.
@@ -292,6 +328,8 @@ if (relative.startsWith("..") || path.isAbsolute(relative)) {
 - **Category:** Authentication, authorization, IDOR, data integrity
 - **File:** `src/main/server/routes/database.ts:530-699`
 - **Effort:** L
+
+**Status:** Resolved by removing the unauthenticated mutation/identity APIs in the July 28, 2026 critical-remediation pass.
 
 **Description:** Script updates accept the entire request body. Event identity and ownership come from caller-supplied `user` and `id` headers. Queries do not derive identity from verified authentication.
 
@@ -315,6 +353,8 @@ await supabase
 - **Category:** Supply chain, remote code execution
 - **Files:** `src/main/server/scripts/download.ts:18-53`, `src/main/server/scripts/execute.ts:93-193`, `src/main/server/scripts/process.ts:175-238`
 - **Effort:** XL
+
+**Status:** Code-level security remediation complete; publisher trust-store and signed-catalog rollout is an explicit operational prerequisite. Remote execution fails closed until that rollout is configured.
 
 **Description:** Remotely downloaded `dione.json` command strings are passed verbatim to `cmd.exe` or Bash. Content is not cryptographically signed or digest-pinned, and execution is not sandboxed.
 

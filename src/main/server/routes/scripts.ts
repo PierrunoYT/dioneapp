@@ -92,7 +92,6 @@ export function createScriptRouter(io: Server) {
 	// start a script by name
 	router.post("/start/:name/:id", async (req, res) => {
 		const { name, id } = req.params;
-		const { replaceCommands } = req.body;
 		const selectedStart = decodeURIComponent((req.query.start as string) || "");
 		const { sanitizedName, workingDir } = resolveScriptPaths(name);
 		const key = `${sanitizedName}:${id}`;
@@ -118,11 +117,10 @@ export function createScriptRouter(io: Server) {
 				io,
 				id,
 				selectedStart !== "" ? selectedStart : undefined,
-				replaceCommands !== "" ? replaceCommands : undefined,
 			);
 			res.status(200).send({ message: "Script started successfully" });
 		} catch (error: any) {
-			logger.error(`Error handling start request - Full error:`, error);
+			logger.error("Error handling start request - Full error:", error);
 			logger.error(`Error message: ${error.message}`);
 			logger.error(`Error stack: ${error.stack}`);
 			logger.error(
@@ -162,7 +160,8 @@ export function createScriptRouter(io: Server) {
 								},
 							],
 						};
-					} else if (s.steps) {
+					}
+					if (s.steps) {
 						return {
 							name: s.name,
 							catch: s.catch,

@@ -1,6 +1,7 @@
 import type http from "node:http";
+import { sanitizeScriptName } from "@/server/scripts/utils/paths";
+import { consumeSocketTicket } from "@/server/security";
 import logger from "@/server/utils/logger";
-import { ipcMain } from "electron";
 import { Server } from "socket.io";
 
 export const start = (httpServer: http.Server) => {
@@ -8,20 +9,27 @@ export const start = (httpServer: http.Server) => {
 	try {
 		const io = new Server(httpServer, {
 			cors: {
-				origin: "*",
+				origin: ["http://localhost:2214", "http://127.0.0.1:2214", "null"],
 				methods: ["GET", "POST"],
 			},
+		});
+		io.use((socket, next) => {
+			try {
+				const appId = sanitizeScriptName(socket.handshake.auth?.appId);
+				if (!consumeSocketTicket(socket.handshake.auth?.ticket, appId)) {
+					throw new Error("Unauthorized");
+				}
+				socket.data.appId = appId;
+				next();
+			} catch {
+				next(new Error("Unauthorized"));
+			}
 		});
 
 		io.on("connection", (socket) => {
 			logger.info(`A user has connected to the server with ID: "${socket.id}"`);
-
-			socket.on("registerApp", (appId) => {
-				if (appId) {
-					socket.join(appId);
-					logger.info(`Socket ${socket.id} joined room: ${appId}`);
-				}
-			});
+			const appId = socket.data.appId as string;
+			socket.join(appId);
 
 			socket.on("connect_error", (err) => {
 				logger.error(`Connection error: ${err.message}`);
@@ -41,12 +49,10 @@ export const start = (httpServer: http.Server) => {
 		});
 
 		logger.info("Socket connected successfully");
-		ipcMain.emit("socket-ready");
 
 		return io;
 	} catch (error) {
 		logger.error("Failed to start socket connection:", error);
-		ipcMain.emit("socket-error");
 		throw error;
 	}
 };

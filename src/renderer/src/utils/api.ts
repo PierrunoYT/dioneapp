@@ -10,48 +10,121 @@ interface PortOptions {
 
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value);
 
-const readPortFromEnv = (): number | null => {
-	const envValue = window?.electron?.process?.env?.DIONE_BACKEND_PORT;
-	if (!envValue) {
-		return null;
-	}
-	const parsed = Number(envValue);
-	return Number.isFinite(parsed) ? parsed : null;
+const STATIC_OPERATIONS: Record<string, string> = {
+	"GET /config": "config.get",
+	"PATCH /config": "config.patch",
+	"POST /config/reset": "config.reset",
+	"POST /report": "report.submit",
+	"POST /deps/uninstall": "dependencies.uninstall",
+	"POST /deps/in-use": "dependencies.inUse",
+	"GET /local/": "local.list",
+	"GET /scripts/installed": "scripts.installed",
+	"POST /scripts/check-update": "scripts.checkUpdate",
+	"GET /db/featured": "database.featured",
+	"GET /db/explore": "database.explore",
+	"GET /ai/ollama/models": "ai.models",
+	"GET /ai/ollama/available-models": "ai.availableModels",
+	"GET /ai/ollama/isinstalled": "ai.isInstalled",
+	"POST /ai/ollama/install": "ai.install",
+	"POST /ai/ollama/stop": "ai.stop",
+	"POST /ai/ollama/start": "ai.start",
+	"POST /ai/ollama/chat": "ai.chat",
 };
+
+const DYNAMIC_OPERATIONS = [
+	["POST", /^\/deps\/install\/([^/]+)$/, "dependencies.install", ["id"]],
+	["POST", /^\/deps\/cancel\/([^/]+)$/, "dependencies.cancel", ["id"]],
+	["GET", /^\/db\/search\/name\/([^/]+)$/, "database.searchName", ["name"]],
+	["GET", /^\/db\/search\/type\/([^/]+)$/, "database.searchType", ["type"]],
+	["GET", /^\/db\/search\/([^/]+)$/, "database.search", ["id"]],
+	["GET", /^\/searchbar\/name\/([^/]+)$/, "search.name", ["name"]],
+	[
+		"GET",
+		/^\/searchbar\/type\/([^/]+)\/([^/]+)$/,
+		"search.type",
+		["name", "type"],
+	],
+	["GET", /^\/local\/installed\/([^/]+)$/, "local.installed", ["name"]],
+	["GET", /^\/local\/get_app\/([^/]+)$/, "local.getApp", ["name"]],
+	["GET", /^\/local\/get_id\/([^/]+)$/, "local.getId", ["id"]],
+	["POST", /^\/local\/load\/([^/]+)$/, "local.load", ["name"]],
+	["DELETE", /^\/local\/delete\/([^/]+)$/, "local.delete", ["name"]],
+	[
+		"POST",
+		/^\/local\/upload\/([^/]+)\/([^/]+)\/([^/]+)\/?$/,
+		"local.upload",
+		["filePath", "name", "description"],
+	],
+	["GET", /^\/scripts\/installed\/([^/]+)$/, "scripts.isInstalled", ["name"]],
+	["GET", /^\/scripts\/download\/([^/]+)\/?$/, "scripts.download", ["id"]],
+	[
+		"POST",
+		/^\/scripts\/start\/([^/]+)\/([^/]+)$/,
+		"scripts.start",
+		["name", "id"],
+	],
+	[
+		"GET",
+		/^\/scripts\/stop\/([^/]+)\/([^/]+)$/,
+		"scripts.stop",
+		["name", "id"],
+	],
+	["GET", /^\/scripts\/delete\/([^/]+)$/, "scripts.delete", ["name"]],
+	[
+		"GET",
+		/^\/scripts\/start-options\/([^/]+)$/,
+		"scripts.startOptions",
+		["name"],
+	],
+	[
+		"GET",
+		/^\/files\/(root|list|content)\/([^/]+)$/,
+		"files.read",
+		["action", "name"],
+	],
+	[
+		"POST",
+		/^\/files\/(save|delete|create|rename)\/([^/]+)$/,
+		"files.mutate",
+		["action", "name"],
+	],
+	["POST", /^\/ai\/ollama\/download-model$/, "ai.downloadModel", []],
+] as const;
+
+function resolveBackendOperation(value: string, method: string) {
+	const url = new URL(
+		value.startsWith("/") ? value : `/${value}`,
+		"http://dione.invalid",
+	);
+	const query = Object.fromEntries(url.searchParams.entries());
+	const staticOperation = STATIC_OPERATIONS[`${method} ${url.pathname}`];
+	if (staticOperation) return { operation: staticOperation, params: query };
+	for (const [routeMethod, pattern, operation, names] of DYNAMIC_OPERATIONS) {
+		if (routeMethod !== method) continue;
+		const match = url.pathname.match(pattern);
+		if (!match) continue;
+		const params: Record<string, string> = { ...query };
+		names.forEach((name, index) => {
+			params[name] = decodeURIComponent(match[index + 1]);
+		});
+		return { operation, params };
+	}
+	throw new Error("Unsupported backend operation");
+}
 
 const registerBackendPortListener = () => {
 	if (isPortListenerRegistered) {
 		return;
 	}
-	const ipcRenderer = window?.electron?.ipcRenderer;
-	if (!ipcRenderer?.on) {
-		return;
-	}
 	isPortListenerRegistered = true;
-	ipcRenderer.on("backend-port-changed", (_event, nextPort?: number) => {
+	window.dione.onBackendPortChanged((nextPort) => {
 		if (typeof nextPort === "number" && Number.isFinite(nextPort)) {
 			cachedPort = nextPort;
 			cachedAt = Date.now();
-			if (window?.electron?.process?.env) {
-				window.electron.process.env.DIONE_BACKEND_PORT = String(nextPort);
-			}
 		} else {
 			invalidateBackendPort();
 		}
 	});
-};
-
-const buildUrl = (input: string | URL, port: number) => {
-	if (input instanceof URL) {
-		return input.toString();
-	}
-
-	if (isAbsoluteUrl(input)) {
-		return input;
-	}
-
-	const normalized = input.startsWith("/") ? input : `/${input}`;
-	return `http://localhost:${port}${normalized}`;
 };
 
 export const invalidateBackendPort = () => {
@@ -68,14 +141,14 @@ export const getBackendPort = async (
 		cachedPort !== null && Date.now() - cachedAt < PORT_TTL_MS;
 
 	if (!shouldForceRefresh && isCacheValid) {
-		return cachedPort!;
+		return cachedPort as number;
 	}
 
-	const envPort = readPortFromEnv();
-	if (envPort !== null) {
-		cachedPort = envPort;
+	const backendPort = await window.dione.getBackendPort();
+	if (backendPort) {
+		cachedPort = backendPort;
 		cachedAt = Date.now();
-		return envPort;
+		return backendPort;
 	}
 
 	throw new Error("Backend port is not available");
@@ -90,8 +163,24 @@ export const apiFetch = async (
 	init?: RequestInit,
 	opts?: FetchOptions,
 ): Promise<Response> => {
-	const port = await getBackendPort({ forceRefresh: opts?.forceRefreshPort });
-	return fetch(buildUrl(path, port), init);
+	await getBackendPort({ forceRefresh: opts?.forceRefreshPort });
+	const value = path instanceof URL ? path.toString() : path;
+	if (isAbsoluteUrl(value))
+		throw new Error("Backend requests must use relative paths");
+	const call = resolveBackendOperation(
+		value,
+		(init?.method || "GET").toUpperCase(),
+	);
+	const headers = new Headers(init?.headers);
+	const result = await window.dione.callBackend(call.operation, call.params, {
+		headers: Object.fromEntries(headers.entries()),
+		body: typeof init?.body === "string" ? init.body : undefined,
+	});
+	return new Response(result.body, {
+		status: result.status,
+		statusText: result.statusText,
+		headers: result.headers,
+	});
 };
 
 export const apiJson = async <T>(

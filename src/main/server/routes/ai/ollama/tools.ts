@@ -1,10 +1,38 @@
 import fs from "node:fs";
 import path from "node:path";
 import getAllScripts from "@/server/scripts/installed";
-import { resolveScriptPaths } from "@/server/scripts/utils/paths";
+import {
+	getAppsRoot,
+	resolveCanonicalAppPath,
+	validateAppId,
+} from "@/server/scripts/utils/paths";
 import logger from "@/server/utils/logger";
 
 const MAX_TOOL_FILE_BYTES = 32 * 1024;
+const ALLOWED_TOOL_EXTENSIONS = new Set([
+	".c",
+	".cpp",
+	".css",
+	".go",
+	".h",
+	".html",
+	".java",
+	".js",
+	".json",
+	".jsx",
+	".md",
+	".py",
+	".rs",
+	".sh",
+	".toml",
+	".ts",
+	".tsx",
+	".txt",
+	".yaml",
+	".yml",
+]);
+const SENSITIVE_FILE_NAMES =
+	/^(?:\.env(?:\..*)?|\.gitconfig|\.npmrc|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)|authorized_keys|credentials|secrets?\.(?:json|ya?ml|toml))$/i;
 
 function ensureNotAborted(signal?: AbortSignal) {
 	if (signal?.aborted) throw new Error("Chat request aborted");
@@ -57,7 +85,30 @@ export function getTools(io: any, signal?: AbortSignal) {
 	};
 }
 
-export function read_file(
+async function findProjectByServerId(projectId: string) {
+	const id = validateAppId(projectId);
+	const entries = await fs.promises.readdir(getAppsRoot(), {
+		withFileTypes: true,
+	});
+	for (const entry of entries) {
+		if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+		const root = await resolveCanonicalAppPath(entry.name, { mustExist: true });
+		for (const metadataName of ["app_info.json", "dione.json"]) {
+			try {
+				const metadata = JSON.parse(
+					await fs.promises.readFile(path.join(root, metadataName), "utf8"),
+				);
+				const ids = [metadata?.id, metadata?.appId, metadata?.app_id];
+				if (ids.some((value) => value === id)) return root;
+			} catch {
+				// Missing or invalid metadata does not make a directory selectable.
+			}
+		}
+	}
+	throw new Error("Project not found");
+}
+
+export async function read_file(
 	project: string,
 	file: string,
 	io: any,
@@ -74,42 +125,47 @@ export function read_file(
 		}
 
 		logger.ai("AI tool read_file outcome=started");
-		const dir = resolveScriptPaths(project).workingDir;
-		let pathToRead = path.resolve(dir, file);
-		const relative = path.relative(path.resolve(dir), pathToRead);
-		if (
-			relative === ".." ||
-			relative.startsWith(`..${path.sep}`) ||
-			path.isAbsolute(relative)
-		) {
+		const dir = await findProjectByServerId(project);
+		if (path.isAbsolute(file) || file.includes("\0")) {
 			return "Error: Requested file escapes the project directory.";
 		}
+		const parts = file.replace(/\\/g, "/").split("/");
+		if (parts.some((part) => !part || part === "." || part === "..")) {
+			return "Error: Invalid file path.";
+		}
+		if (parts.some((part) => SENSITIVE_FILE_NAMES.test(part))) {
+			return "Error: Sensitive files cannot be read by the AI tool.";
+		}
+		if (!ALLOWED_TOOL_EXTENSIONS.has(path.extname(file).toLowerCase())) {
+			return "Error: File type is not allowed for the AI tool.";
+		}
 
-		if (fs.existsSync(pathToRead)) {
-			if (fs.statSync(pathToRead).size > MAX_TOOL_FILE_BYTES) {
+		let current = dir;
+		for (const part of parts) {
+			current = path.join(current, part);
+			const stats = await fs.promises.lstat(current);
+			if (stats.isSymbolicLink()) throw new Error("Symbolic link rejected");
+		}
+		const canonical = await fs.promises.realpath(current);
+		const relative = path.relative(dir, canonical);
+		if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+			throw new Error("File escapes project");
+		}
+		const handle = await fs.promises.open(
+			canonical,
+			fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+		);
+		try {
+			const stats = await handle.stat();
+			if (!stats.isFile()) return "Error: Requested path is not a file.";
+			if (stats.size > MAX_TOOL_FILE_BYTES) {
 				return "Error: File exceeds the AI tool size limit.";
 			}
-			return fs.readFileSync(pathToRead, "utf8");
+			logger.ai("AI tool read_file outcome=success");
+			return await handle.readFile({ encoding: "utf8" });
+		} finally {
+			await handle.close();
 		}
-
-		// search inside subdirectories
-		for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-			const p = path.join(dir, e.name, file);
-			if (
-				(e.isFile() && e.name === file) ||
-				(e.isDirectory() && fs.existsSync(p))
-			) {
-				pathToRead = p;
-				if (fs.statSync(pathToRead).size > MAX_TOOL_FILE_BYTES) {
-					return "Error: File exceeds the AI tool size limit.";
-				}
-				logger.ai("AI tool read_file outcome=success");
-				return fs.readFileSync(pathToRead, "utf8");
-			}
-		}
-
-		logger.ai("AI tool read_file outcome=not_found");
-		return `Error: File "${file}" not found in project "${project}".`;
 	} catch (err: any) {
 		logger.ai("AI tool read_file outcome=error");
 		return "Error reading requested file.";
@@ -157,7 +213,7 @@ export async function get_latest_apps(io: any, signal?: AbortSignal) {
 				logger.error(
 					`Fetch failed: [${response.status}] ${response.statusText}`,
 				);
-				return "Dione API error: " + response.statusText;
+				return `Dione API error: ${response.statusText}`;
 			}
 
 			let data: any = null;

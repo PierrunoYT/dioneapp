@@ -17,7 +17,7 @@ export default function Setup({ onSelectLanguage }: SetupProps) {
 		setPathError(null);
 		setSelectedPath(null);
 		setPathSuccess(false);
-		const result = await window.electron.ipcRenderer.invoke("save-dir");
+		const result = await window.dione.chooseDirectory();
 
 		if (!result.canceled) {
 			setSelectedPath(result.filePaths[0]);
@@ -27,24 +27,19 @@ export default function Setup({ onSelectLanguage }: SetupProps) {
 					return;
 				}
 				setPathError(null);
-				const accept = await window.electron.ipcRenderer.invoke(
-					"check-dir",
-					result.filePaths[0],
-				);
+				const accept = await window.dione.checkDirectory(result.filePaths[0]);
 
 				if (accept) {
-					const configUpdated1 = await window.electron.ipcRenderer.invoke(
-						"update-config",
-						{ defaultBinFolder: result.filePaths[0] },
-					);
-					const configUpdated2 = await window.electron.ipcRenderer.invoke(
-						"update-config",
-						{ defaultInstallFolder: result.filePaths[0] },
-					);
+					const configUpdated1 = await window.dione.updateConfig({
+						defaultBinFolder: result.filePaths[0],
+					});
+					const configUpdated2 = await window.dione.updateConfig({
+						defaultInstallFolder: result.filePaths[0],
+					});
 
 					if (configUpdated1 && configUpdated2) {
 						setPathSuccess(true);
-						window.electron.ipcRenderer.invoke("init-env");
+						window.dione.initializeEnvironment();
 					} else {
 						setPathError(t("firstTime.languageSelector.error.updateConfig"));
 					}
@@ -62,7 +57,7 @@ export default function Setup({ onSelectLanguage }: SetupProps) {
 	const [_isInitialized, setIsInitialized] = useState(false);
 
 	async function fetchLocalLanguage() {
-		const locale = await window.electron.ipcRenderer.invoke("get-locale");
+		const locale = await window.dione.getLocale();
 		const langCode = locale?.split("-")[0] || null;
 		setLocalLanguage(langCode);
 

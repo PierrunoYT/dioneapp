@@ -86,25 +86,23 @@ export default function Sidebar() {
 	const [releaseNotes, setReleaseNotes] = useState<any>(null);
 
 	useEffect(() => {
-		window.electron.ipcRenderer.invoke("check-update");
+		window.dione.checkForUpdates();
 	}, []);
 
 	useEffect(() => {
 		const handleUpdateAvailable = () => setUpdateAvailable(true);
 		const handleUpdateDownloaded = () => setUpdateDownloaded(true);
 
-		window.electron.ipcRenderer.on("update_available", handleUpdateAvailable);
-		window.electron.ipcRenderer.on("update_downloaded", handleUpdateDownloaded);
+		const removeAvailable = window.dione.onUpdateAvailable(
+			handleUpdateAvailable,
+		);
+		const removeDownloaded = window.dione.onUpdateDownloaded(
+			handleUpdateDownloaded,
+		);
 
 		return () => {
-			window.electron.ipcRenderer.removeListener(
-				"update_available",
-				handleUpdateAvailable,
-			);
-			window.electron.ipcRenderer.removeListener(
-				"update_downloaded",
-				handleUpdateDownloaded,
-			);
+			removeAvailable();
+			removeDownloaded();
 		};
 	}, []);
 
@@ -140,8 +138,7 @@ export default function Sidebar() {
 	useEffect(() => {
 		const fetchReleaseNotes = async () => {
 			if (updateAvailable) {
-				const currentVersion =
-					await window.electron.ipcRenderer.invoke("get-version");
+				const currentVersion = await window.dione.getVersion();
 				const res = await fetch(
 					"https://api.github.com/repos/dioneapp/dioneapp/releases",
 				);
@@ -207,9 +204,7 @@ export default function Sidebar() {
 
 							<div className="mt-4 flex justify-end gap-3">
 								<Button
-									onClick={() =>
-										window.electron.ipcRenderer.send("quit_and_install")
-									}
+									onClick={() => window.dione.installUpdate()}
 									variant="accent"
 									size="sm"
 								>
@@ -398,7 +393,7 @@ export default function Sidebar() {
 							<div className="mt-4 items-center gap-2 justify-center mx-auto w-full h-full flex-col flex transition-all duration-500">
 								<div className="flex flex-col gap-2 transition-all duration-400 mb-2">
 									<IconButton
-										onClick={() => window.captureScreenshot()}
+										onClick={() => window.dione.captureScreenshot()}
 										icon={<Camera className="h-5 w-5" />}
 										variant="outline"
 										size="md"
@@ -460,7 +455,7 @@ export default function Sidebar() {
 								<button
 									type="button"
 									aria-label={t("sidebar.tooltips.capture")}
-									onClick={() => window.captureScreenshot()}
+									onClick={() => window.dione.captureScreenshot()}
 									className="p-2 hover:bg-white/10 rounded-xl transition-colors flex gap-1 items-center relative cursor-pointer"
 									onMouseEnter={() => setHoveredTooltip("capture")}
 									onMouseLeave={() => setHoveredTooltip(null)}

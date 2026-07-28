@@ -58,14 +58,14 @@ function App() {
 	}, [navigate]);
 
 	useEffect(() => {
-		window.electron.ipcRenderer.invoke("check-first-launch").then((result) => {
+		window.dione.checkFirstLaunch().then((result) => {
 			setIsFirstLaunch(result);
 			localStorage.setItem("firstLaunch", result.toString());
 			setIsLoading(false);
 			if (result === true) {
 				navigate("/first-time");
 			} else {
-				window.electron.ipcRenderer.invoke("init-env");
+				window.dione.initializeEnvironment();
 			}
 		});
 	}, []);

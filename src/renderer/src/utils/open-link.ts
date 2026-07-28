@@ -7,10 +7,7 @@ export const openLink = (url: string) => {
 	try {
 		const externalUrl = new URL(url);
 		if (externalUrl.protocol === "https:") {
-			window.electron.ipcRenderer.invoke(
-				"open-external-link",
-				externalUrl.toString(),
-			);
+			window.dione.openExternal(externalUrl.toString());
 		}
 	} catch {
 		// Ignore malformed external URLs.
@@ -18,5 +15,5 @@ export const openLink = (url: string) => {
 };
 
 export const openFolder = async (path: string) => {
-	await window.electron.ipcRenderer.invoke("open-dir", path);
+	await window.dione.openPath(path);
 };

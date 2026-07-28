@@ -283,8 +283,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 					);
 				}
 			} finally {
-				if (!isCurrent()) return;
-				if (isRootPath) {
+				if (isCurrent() && isRootPath) {
 					setIsLoadingTree(false);
 					setTree((prev) =>
 						updateTreeNode(prev, "", (node) => ({
@@ -292,7 +291,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 							isLoading: false,
 						})),
 					);
-				} else {
+				} else if (isCurrent()) {
 					setTree((prev) =>
 						updateTreeNode(prev, targetPath, (node) => ({
 							...node,
@@ -657,7 +656,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 	const handleCopyNodePath = useCallback(
 		async (node: FileNode) => {
 			try {
-				window.copyToClipboard.writeText(node.absolutePath);
+				window.dione.copyText(node.absolutePath);
 				showToast("success", "Path copied to clipboard");
 			} catch (error) {
 				showToast("error", "Failed to copy path");
@@ -669,11 +668,9 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 	const handleOpenNodeFolder = useCallback(
 		(node: FileNode) => {
 			if (!node.absolutePath) return;
-			window.electron.ipcRenderer
-				.invoke("open-dir", node.absolutePath)
-				.catch(() => {
-					showToast("error", "Unable to open location");
-				});
+			window.dione.openPath(node.absolutePath).catch(() => {
+				showToast("error", "Unable to open location");
+			});
 		},
 		[showToast],
 	);
@@ -965,7 +962,7 @@ export default function WorkspaceEditor({ data, setShow }: EditorViewProps) {
 
 	const handleOpenInExplorer = useCallback(() => {
 		if (!rootPath) return;
-		window.electron.ipcRenderer.invoke("open-dir", rootPath);
+		window.dione.openPath(rootPath);
 	}, [rootPath]);
 
 	const language = useMemo(

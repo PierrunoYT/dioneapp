@@ -57,7 +57,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 	}, [ollamaModel]);
 
 	const checkOllama = async () => {
-		const response = await apiFetch(`/ai/ollama/isinstalled`, {
+		const response = await apiFetch("/ai/ollama/isinstalled", {
 			method: "GET",
 		});
 		const data = await response.json();
@@ -96,16 +96,12 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		}
 
 		setOllamaStatus("installing");
-		if (!sockets["ollama"]) {
+		if (!sockets.ollama) {
 			await connectApp("ollama", true);
 			await new Promise((resolve) => setTimeout(resolve, 500)); // wait for socket to connect
 		}
 
-		window.electron.ipcRenderer.invoke(
-			"notify",
-			"Downloading...",
-			`Starting download of Ollama`,
-		);
+		window.dione.notify("Downloading...", "Starting download of Ollama");
 		await apiFetch("/ai/ollama/install", {
 			method: "POST",
 		});
@@ -120,7 +116,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 			method: "POST",
 		});
 
-		if (sockets["ollama"]) {
+		if (sockets.ollama) {
 			await disconnectApp("ollama");
 			await new Promise((resolve) => setTimeout(resolve, 500)); // wait for socket to disconnect
 		}
@@ -136,7 +132,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		if (response.status === 200) {
 			setOllamaRunning(true);
 			// Connect ollama socket if not already connected
-			if (!sockets["ollama"]) {
+			if (!sockets.ollama) {
 				await connectApp("ollama", true);
 				console.log("Ollama socket connected");
 			}
@@ -174,10 +170,8 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 		try {
 			pendingRef.current++;
 			setMessageLoading(true);
-			if (quickAI === undefined || quickAI === null) {
-				quickAI = true;
-			}
-			const response = await apiFetch(`/ai/ollama/chat`, {
+			const useQuickAI = quickAI ?? true;
+			const response = await apiFetch("/ai/ollama/chat", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -186,7 +180,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 					messages: newMessages,
 					model: ollamaModel,
 					support: ollamaSupport,
-					quickAI: quickAI,
+					quickAI: useQuickAI,
 					code: {
 						context: code?.context,
 						name: code?.name,
@@ -268,7 +262,7 @@ export function AIContextProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	useEffect(() => {
-		const socket = sockets["ollama"]?.socket;
+		const socket = sockets.ollama?.socket;
 		if (socket) {
 			console.log("Socket connected");
 			socket.on(

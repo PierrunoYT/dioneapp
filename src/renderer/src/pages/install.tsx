@@ -3,7 +3,6 @@ import ActionsComponent from "@/components/features/install/actions";
 import IframeComponent from "@/components/features/install/iframe";
 import LogsComponent from "@/components/features/install/logs";
 import NotSupported from "@/components/features/install/not-supported";
-import CustomCommandsModal from "@/components/features/modals/custom-commands";
 import DeleteLoadingModal from "@/components/features/modals/delete-loading";
 import { useTranslation } from "@/translations/translation-context";
 import { apiFetch, apiJson } from "@/utils/api";
@@ -87,11 +86,6 @@ export default function Install({
 
 	// start options
 	const [startOptions, setStartOptions] = useState<any>(null);
-	const [selectedStart, setSelectedStart] = useState<any>(null);
-	const [openCustomCommands, setOpenCustomCommands] = useState<boolean>(false);
-	const [customizableCommands, setCustomizableCommands] = useState<
-		Record<string, string>
-	>({});
 	// state
 	const [executing, setExecuting] = useState<"start" | "install" | null>(null);
 
@@ -354,7 +348,7 @@ export default function Install({
 			await new Promise((resolve) => setTimeout(resolve, 500)); // wait for socket to connect
 		}
 		setShow({ [data.id]: "logs" });
-		const response = (await apiJson(`/scripts/check-update`, {
+		const response = (await apiJson("/scripts/check-update", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -404,15 +398,20 @@ export default function Install({
 		}
 
 		try {
-			window.electron.ipcRenderer.invoke(
-				"notify",
+			window.dione.notify(
 				"Downloading...",
 				`Starting download of ${data.name}`,
 			);
 
 			if (isLocal) {
+				const approvalNonce = await window.dione.approveLocalScript(data.name);
+				if (!approvalNonce) {
+					throw new Error("Local script execution was not approved");
+				}
 				await apiFetch(`/local/load/${data.name}`, {
-					method: "GET",
+					method: "POST",
+					body: JSON.stringify({ approvalNonce }),
+					headers: { "Content-Type": "application/json" },
 				});
 			} else {
 				if (force) {
@@ -441,35 +440,9 @@ export default function Install({
 		}
 
 		handleReloadQuickLaunch();
-		if (!isLocal) {
-			updateDownloadsCount();
-		}
 	}
 
-	async function updateDownloadsCount() {
-		if (!data?.id) return;
-		const response = await apiFetch(`/db/update-script/${data.id}`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				downloads: data.downloads + 1,
-				updated_at: new Date().toISOString(),
-			}),
-		});
-
-		if (!response.ok) {
-			throw new Error("Failed to update downloads count");
-		}
-		const result = await response.json();
-		console.log(result);
-	}
-
-	async function start(
-		selectedStart?: string,
-		replaceCommands?: Record<string, string>,
-	) {
+	async function start(selectedStart?: string) {
 		if (isServerRunning[data?.id]) {
 			showToast("error", t("toast.install.error.serverRunning"));
 			return;
@@ -498,16 +471,11 @@ export default function Install({
 
 			if (!isServerRunning[data?.id]) {
 				setShow({ [data?.id]: "logs" });
-				window.electron.ipcRenderer.invoke(
-					"notify",
-					"Starting...",
-					`Starting ${data.name}`,
-				);
+				window.dione.notify("Starting...", `Starting ${data.name}`);
 				await apiFetch(
 					`/scripts/start/${data?.name}/${data?.id}${selectedStart ? `?start=${encodeURIComponent(selectedStart)}` : ""}`,
 					{
 						method: "POST",
-						body: JSON.stringify({ replaceCommands }),
 						headers: {
 							"Content-Type": "application/json",
 						},
@@ -535,7 +503,7 @@ export default function Install({
 			if (response.status === 200) {
 				setShow({ [data?.id]: "actions" });
 				setInstalled(true);
-				// window.electron.ipcRenderer.invoke(
+				// notification intentionally omitted (
 				//     "notify",
 				//     "Stopping...",
 				//     `${data.name} stopped successfully.`,
@@ -549,7 +517,7 @@ export default function Install({
 				await fetchIfDownloaded();
 				setIsServerRunning((prev) => ({ ...prev, [data?.id]: false }));
 				if (type === "exit") {
-					window.electron.ipcRenderer.invoke("app:close");
+					window.dione.closeApp();
 				}
 			} else {
 				showToast(
@@ -566,11 +534,7 @@ export default function Install({
 					.replace("%s", data?.name)
 					.replace("%s", String(error)),
 			);
-			window.electron.ipcRenderer.invoke(
-				"notify",
-				"Error...",
-				`Error stopping ${data.name}: ${error}`,
-			);
+			window.dione.notify("Error...", `Error stopping ${data.name}: ${error}`);
 			addLogLine(data?.id, `Error stopping ${data.name}`);
 		}
 	}
@@ -596,8 +560,7 @@ export default function Install({
 					await uninstallApp();
 				} else {
 					setDeleteStatus("error_deps");
-					window.electron.ipcRenderer.invoke(
-						"notify",
+					window.dione.notify(
 						"Error...",
 						`Error uninstalling dependencies: ${result.reasons?.join(", ") || result.error || "Unknown error"}.`,
 					);
@@ -634,8 +597,7 @@ export default function Install({
 		});
 		if (response.status === 200) {
 			setDeleteStatus("deleted");
-			window.electron.ipcRenderer.invoke(
-				"notify",
+			window.dione.notify(
 				"Uninstalling...",
 				`${data.name} uninstalled successfully.`,
 			);
@@ -651,8 +613,7 @@ export default function Install({
 			setApps((prevApps) => prevApps.filter((app) => app?.name !== data.name));
 		} else {
 			setDeleteStatus("error");
-			window.electron.ipcRenderer.invoke(
-				"notify",
+			window.dione.notify(
 				"Error...",
 				`Error uninstalling ${data.name}: Error ${response.status}`,
 			);
@@ -668,7 +629,7 @@ export default function Install({
 	const copyLogsToClipboard = () => {
 		showToast("success", t("toast.install.success.logsCopied"));
 		const logsText = getAllAppLogs().join("\n");
-		window.copyToClipboard.writeText(logsText);
+		window.dione.copyText(logsText);
 	};
 
 	const handleDownload = async () => {
@@ -685,33 +646,14 @@ export default function Install({
 			return;
 		}
 		if (selectedStartOpt) {
-			setSelectedStart(selectedStartOpt);
-
-			const replaceCommands: Record<string, string> = {};
-			console.log("selectedStart", selectedStartOpt);
-			for (const step of selectedStartOpt.steps as any[]) {
-				for (const cmd of step.commands as any[]) {
-					if (typeof cmd === "object" && cmd.customizable) {
-						replaceCommands[cmd.command] = cmd.command;
-					}
-				}
+			showToast(
+				"default",
+				t("toast.install.starting").replace("%s", data.name),
+			);
+			if (show[data?.id] !== "logs") {
+				setShow({ [data?.id]: "logs" });
 			}
-
-			if (Object.keys(replaceCommands).length > 0) {
-				console.log("custom commands (old -> new):", replaceCommands);
-				setCustomizableCommands(replaceCommands);
-				setOpenCustomCommands(true);
-			} else {
-				showToast(
-					"default",
-					t("toast.install.starting").replace("%s", data.name),
-				);
-				if (show[data?.id] !== "logs") {
-					setShow({ [data?.id]: "logs" });
-				}
-				setSelectedStart(selectedStartOpt.name);
-				await start(selectedStartOpt.name);
-			}
+			await start(selectedStartOpt.name);
 		} else {
 			await start();
 		}
@@ -808,7 +750,7 @@ export default function Install({
 	}
 
 	async function handleShare() {
-		window.copyToClipboard.writeText(`dione://download=${data?.id}`);
+		window.dione.copyText(`dione://download=${data?.id}`);
 		showToast("success", t("toast.install.success.shared"));
 	}
 
@@ -833,7 +775,7 @@ export default function Install({
 		await fetchIfDownloaded();
 		await handleStopApp(data.id, data.name);
 		setExecuting(null);
-		window.electron.ipcRenderer.send("close-preview-window");
+		window.dione.closePreview();
 	};
 
 	useEffect(() => {
@@ -884,28 +826,8 @@ export default function Install({
 		}
 	}, [installed]);
 
-	const handleEditCommand = (oldCommand: string, newValue: string) => {
-		setCustomizableCommands((prev) => ({
-			...prev,
-			[oldCommand]: newValue,
-		}));
-	};
-
 	return (
 		<>
-			{openCustomCommands && (
-				<CustomCommandsModal
-					commands={customizableCommands}
-					onEdit={handleEditCommand}
-					onLaunch={() => {
-						if (customizableCommands && selectedStart) {
-							start(selectedStart.name, customizableCommands);
-						}
-						setOpenCustomCommands(false);
-					}}
-					onCancel={() => setOpenCustomCommands(false)}
-				/>
-			)}
 			{(deleteStatus !== "" || deleteDepsModal) && (
 				<DeleteLoadingModal
 					status={deleteStatus}
@@ -926,7 +848,7 @@ export default function Install({
 			<div className="relative w-full h-full overflow-auto">
 				{/* Subtle background light effect */}
 				<div className="absolute inset-0 pointer-events-none overflow-hidden">
-					<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-xl bg-gradient-to-br from-[var(--theme-accent)] to-[var(--theme-accent-secondary)] opacity-[0.08] blur-[120px]"></div>
+					<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-xl bg-gradient-to-br from-[var(--theme-accent)] to-[var(--theme-accent-secondary)] opacity-[0.08] blur-[120px]" />
 				</div>
 
 				{notSupportedModal && (

@@ -2,9 +2,9 @@ import type { SetupSocketProps } from "@/components/contexts/types/context-types
 import successSound from "@/components/features/first-time/sounds/success.mp3";
 import { sendDiscordReport } from "@/utils/discord-webhook";
 import {
+	type StoredConfig,
 	isConfig,
 	readStoredJson,
-	type StoredConfig,
 } from "@/utils/local-storage";
 import { type Socket, io as clientIO } from "socket.io-client";
 
@@ -36,7 +36,16 @@ export function setupSocket({
 		console.log(`Socket [${appId}] already exists`);
 		return socketsRef.current[appId].socket;
 	}
-	const socket = clientIO(`http://localhost:${port}`);
+	const socket = clientIO(`http://localhost:${port}`, {
+		auth: async (callback) => {
+			try {
+				const credentials = await window.dione.getSocketCredentials(appId);
+				callback({ ticket: credentials.ticket, appId });
+			} catch {
+				callback({ ticket: "", appId });
+			}
+		},
+	});
 	const settings = readStoredJson<StoredConfig>("config", () => ({}), isConfig);
 
 	// progress tracking state per socket/app
@@ -139,7 +148,6 @@ export function setupSocket({
 
 	socket.on("connect", () => {
 		console.log(`Socket [${appId}] connected with ID: ${socket.id}`);
-		socket.emit("registerApp", appId);
 	});
 
 	socket.on("disconnect", () => {
@@ -273,10 +281,7 @@ export function setupSocket({
 				return;
 			}
 
-			if (
-				(content && content.toLowerCase().includes("error")) ||
-				status === "error"
-			) {
+			if (content?.toLowerCase().includes("error") || status === "error") {
 				errorRef.current = true;
 				if (settings.sendAnonymousReports && content) {
 					sendDiscordReport(content, {
@@ -363,8 +368,7 @@ export function setupSocket({
 					scheduleApply(100, "Completed", "success");
 				}
 				if (content.toLowerCase().includes("actions executed")) {
-					window.electron.ipcRenderer.invoke(
-						"notify",
+					window.dione.notify(
 						"Actions executed",
 						`${data.name} has finished successfully.`,
 					);
@@ -398,8 +402,7 @@ export function setupSocket({
 	socket.on("notSupported", (message: { reasons: string }) => {
 		const reasons = [message.reasons];
 		setNotSupported((prev) => ({ ...prev, [appId]: { reasons } }));
-		window.electron.ipcRenderer.invoke(
-			"notify",
+		window.dione.notify(
 			"Script execution failed",
 			"Do not meet the minimum requirements to use an app.",
 		);

@@ -4,7 +4,12 @@ import path from "node:path";
 import { checkDependencies } from "@/server/scripts/dependencies/dependencies";
 import executeInstallation from "@/server/scripts/execute";
 import { checkSystem } from "@/server/scripts/system";
-import { getAppsRoot, sanitizeScriptName } from "@/server/scripts/utils/paths";
+import { consumeLocalApproval } from "@/server/scripts/trust";
+import {
+	getAppsRoot,
+	resolveCanonicalAppPath,
+	sanitizeScriptName,
+} from "@/server/scripts/utils/paths";
 import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
 import { log } from "./process";
@@ -16,6 +21,29 @@ const getAppFolder = () => {
 	}
 	return folder;
 };
+
+async function writeAppFileAtomic(destination: string, content: string) {
+	const temporary = path.join(
+		path.dirname(destination),
+		`.${path.basename(destination)}.${randomUUID()}.tmp`,
+	);
+	const handle = await fs.promises.open(temporary, "wx", 0o600);
+	try {
+		await handle.writeFile(content, "utf8");
+	} finally {
+		await handle.close();
+	}
+	try {
+		const existing = await fs.promises.lstat(destination).catch(() => null);
+		if (existing?.isSymbolicLink())
+			throw new Error("Destination symlink rejected");
+		if (existing) await fs.promises.rm(destination);
+		await fs.promises.rename(temporary, destination);
+	} catch (error) {
+		await fs.promises.rm(temporary, { force: true }).catch(() => {});
+		throw error;
+	}
+}
 
 export async function getAllLocalScripts() {
 	const scriptsPath = getAppFolder();
@@ -82,46 +110,14 @@ export async function getLocalScriptById(id: string) {
 }
 
 // install script on APPS folder
-export async function loadLocalScript(name: string, io: Server) {
-	// get script from scripts folder
-	const baseFolder = getAppFolder();
-	const sanitizedName = sanitizeScriptName(name);
-	const scriptPath = path.join(baseFolder, sanitizedName);
-	const dioneFilePath = path.join(scriptPath, "dione.json");
-	const appInfoPath = path.join(scriptPath, "app_info.json");
-
-	// copy script to apps folder
-	const appPath = path.join(baseFolder, sanitizedName);
-
-	if (!fs.existsSync(appPath)) {
-		fs.mkdirSync(appPath, { recursive: true });
-	}
-
-	// format json files & copy to apps folder
-	try {
-		const sourceDione = fs.readFileSync(dioneFilePath, "utf8");
-		const dioneObj = JSON.parse(sourceDione);
-		fs.writeFileSync(
-			path.join(appPath, "dione.json"),
-			JSON.stringify(dioneObj, null, 2),
-			"utf8",
-		);
-
-		const sourceAppInfo = fs.readFileSync(appInfoPath, "utf8");
-		const appInfoObj = JSON.parse(sourceAppInfo);
-		fs.writeFileSync(
-			path.join(appPath, "app_info.json"),
-			JSON.stringify(appInfoObj, null, 2),
-			"utf8",
-		);
-	} catch (err: any) {
-		// if error, copy files without formatting
-		logger.warn(`Error formating JSON for ${sanitizedName}: ${err.message}`);
-		fs.copyFileSync(dioneFilePath, path.join(appPath, "dione.json"));
-		fs.copyFileSync(appInfoPath, path.join(appPath, "app_info.json"));
-	}
-
+export async function loadLocalScript(
+	name: string,
+	io: Server,
+	approvalNonce: string,
+) {
+	const appPath = await resolveCanonicalAppPath(name, { mustExist: true });
 	const dioneConfigPath = path.join(appPath, "dione.json");
+	await consumeLocalApproval(dioneConfigPath, approvalNonce);
 	const scriptInfo = JSON.parse(
 		fs.readFileSync(path.join(appPath, "app_info.json"), "utf-8"),
 	);
@@ -142,9 +138,8 @@ export async function loadLocalScript(name: string, io: Server) {
 			reasons: systemCheck.reasons,
 		});
 		return;
-	} else {
-		log(io, id, "All system requirements are met.");
 	}
+	log(io, id, "All system requirements are met.");
 	// check deps
 	const result = await checkDependencies(dioneConfigPath);
 	if (result.success) {
@@ -197,20 +192,31 @@ export async function uploadLocalScript(
 		name: name || "Script",
 		description: description || "",
 		id: randomUUID(),
+		trustClassification: "local-user-imported",
 	};
-	const dioneConfigContent = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+	const sourceStats = await fs.promises.lstat(filePath);
+	if (!sourceStats.isFile() || sourceStats.isSymbolicLink())
+		throw new Error("Local manifest must be a regular, non-symbolic-link file");
+	const dioneConfigContent = JSON.parse(
+		await fs.promises.readFile(filePath, "utf-8"),
+	);
 	const sanitizedName = sanitizeScriptName(name);
 	const id = appInfoContent.id;
 
 	logger.info(`Uploading script '${name}' with ID '${id}'`);
 
-	const scriptPath = path.join(getAppFolder(), sanitizedName);
-	fs.mkdirSync(scriptPath, { recursive: true });
-	fs.writeFileSync(
+	let scriptPath = await resolveCanonicalAppPath(sanitizedName);
+	const existing = await fs.promises.lstat(scriptPath).catch(() => null);
+	if (!existing) await fs.promises.mkdir(scriptPath);
+	else
+		scriptPath = await resolveCanonicalAppPath(sanitizedName, {
+			mustExist: true,
+		});
+	await writeAppFileAtomic(
 		path.join(scriptPath, "dione.json"),
 		JSON.stringify(dioneConfigContent),
 	);
-	fs.writeFileSync(
+	await writeAppFileAtomic(
 		path.join(scriptPath, "app_info.json"),
 		JSON.stringify(appInfoContent),
 	);
@@ -220,7 +226,6 @@ export async function uploadLocalScript(
 
 // delete script from SCRIPTS folder
 export async function deleteLocalScript(name: string) {
-	const sanitizedName = sanitizeScriptName(name);
-	const scriptPath = path.join(getAppFolder(), sanitizedName);
+	const scriptPath = await resolveCanonicalAppPath(name, { mustExist: true });
 	fs.rmSync(scriptPath, { recursive: true });
 }

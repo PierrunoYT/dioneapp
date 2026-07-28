@@ -19,6 +19,9 @@ import {
 // 	saveToken,
 // } from "@/security/secure-tokens";
 import { initDefaultEnv } from "@/server/scripts/dependencies/environment";
+import { createLocalApproval } from "@/server/scripts/trust";
+import { resolveCanonicalAppPath } from "@/server/scripts/utils/paths";
+import { createSocketTicket, getBackendToken } from "@/server/security";
 import { start as startServer, stop as stopServer } from "@/server/server";
 import logger, { getLogs } from "@/server/utils/logger";
 import { exportDebugLogs } from "@/utils/export-logs";
@@ -136,10 +139,39 @@ if (
 // define main window
 let mainWindow: BrowserWindow;
 let port: number;
-let sessionId: string;
 const pendingDeepLinks: string[] = [];
 let dispatchDeepLink: ((url: string | undefined) => void) | undefined;
 let rendererReadyForDeepLinks = false;
+
+const isTrustedRenderer = (
+	event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+) => {
+	if (!mainWindow || mainWindow.isDestroyed()) return false;
+	return (
+		event.sender === mainWindow.webContents &&
+		event.senderFrame === mainWindow.webContents.mainFrame
+	);
+};
+
+const secureHandle = (
+	channel: string,
+	listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any,
+) => {
+	ipcMain.handle(channel, (event, ...args) => {
+		if (!isTrustedRenderer(event)) throw new Error("Untrusted IPC sender");
+		return listener(event, ...args);
+	});
+};
+
+const secureOn = (
+	channel: string,
+	listener: (event: Electron.IpcMainEvent, ...args: any[]) => void,
+) => {
+	ipcMain.on(channel, (event, ...args) => {
+		if (!isTrustedRenderer(event)) return;
+		listener(event, ...args);
+	});
+};
 
 const dispatchOrQueueDeepLink = (url: string | undefined) => {
 	if (!url) return;
@@ -168,7 +200,7 @@ if (gotSingleInstanceLock) {
 		dispatchOrQueueDeepLink(url);
 	});
 
-	ipcMain.on("renderer-ready", (event) => {
+	secureOn("renderer-ready", (event) => {
 		if (!mainWindow || event.sender !== mainWindow.webContents) return;
 		rendererReadyForDeepLinks = true;
 		for (const deepLink of pendingDeepLinks.splice(0)) {
@@ -326,16 +358,11 @@ function createWindow() {
 			webPreferences: {
 				contextIsolation: true,
 				nodeIntegration: false,
-				webviewTag: true,
+				webviewTag: false,
 				preload: join(__dirname, "../preload/index.js"),
-				sandbox: false,
-				...(process.platform === "linux"
-					? {
-							enableRemoteModule: false,
-							webSecurity: false,
-							allowRunningInsecureContent: true,
-						}
-					: {}),
+				sandbox: true,
+				webSecurity: true,
+				allowRunningInsecureContent: false,
 			},
 		});
 		logger.info("Main window created successfully");
@@ -351,6 +378,10 @@ function createWindow() {
 				contextIsolation: true,
 				nodeIntegration: false,
 				preload: join(__dirname, "../preload/index.js"),
+				sandbox: true,
+				webSecurity: true,
+				allowRunningInsecureContent: false,
+				webviewTag: false,
 			},
 		});
 		logger.info("Fallback window created");
@@ -420,8 +451,6 @@ function createWindow() {
 		}
 	});
 
-	if (process.platform === "linux") app.commandLine.appendSwitch("no-sandbox");
-
 	const handleDeepLink = (url: string | undefined) => {
 		try {
 			if (!url) {
@@ -460,26 +489,6 @@ function createWindow() {
 	};
 	dispatchDeepLink = handleDeepLink;
 
-	app.on("web-contents-created", (_e, contents) => {
-		if (contents.getType() === "webview") {
-			contents.setWindowOpenHandler(buildWindowOpenHandler(contents));
-			contents.session.on("will-download", (_event, item) => {
-				const fileName = item.getFilename() || "download";
-				const savePath = dialog.showSaveDialogSync(mainWindow, {
-					title: "Save File",
-					buttonLabel: "Save",
-					defaultPath: path.join(app.getPath("downloads"), fileName),
-				});
-
-				if (savePath) {
-					item.setSavePath(savePath);
-				} else {
-					item.cancel();
-				}
-			});
-		}
-	});
-
 	mainWindow.webContents.on("will-navigate", (event, url) => {
 		if (url !== mainWindow.webContents.getURL()) {
 			event.preventDefault();
@@ -509,7 +518,7 @@ function createWindow() {
 	}
 
 	// add ipc handler for maximize/restore
-	ipcMain.handle("app:toggle-maximize", () => {
+	secureHandle("app:toggle-maximize", () => {
 		if (!mainWindow) return false;
 		if (mainWindow.isMaximized()) {
 			mainWindow.unmaximize();
@@ -519,7 +528,7 @@ function createWindow() {
 		return true;
 	});
 
-	ipcMain.handle("app:is-fullscreen", () => {
+	secureHandle("app:is-fullscreen", () => {
 		if (!mainWindow) return false;
 		return mainWindow.isFullScreen();
 	});
@@ -532,118 +541,6 @@ app.whenReady().then(async () => {
 
 	logger.info("Starting app...");
 	configurePermissionHandlers();
-
-	// map to store request origins
-	const requestOrigins = new Map<string, string>();
-
-	// set up CORS for localhost
-	session.defaultSession.webRequest.onBeforeSendHeaders(
-		{ urls: ["http://localhost:*/*", "http://127.0.0.1:*/*"] },
-		(details, callback) => {
-			const headers = { ...details.requestHeaders };
-			const url = new URL(details.url);
-
-			// only apply configurations for localhost/127.0.0.1
-			if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-				headers.Origin = `${url.protocol}//${url.hostname}:${url.port}`;
-				headers.Host = `${url.hostname}:${url.port}`;
-
-				// Guardar el origen del request para usar en onHeadersReceived
-				const requestOrigin =
-					details.requestHeaders?.origin?.[0] ||
-					details.requestHeaders?.Origin?.[0];
-				if (requestOrigin && details.id) {
-					requestOrigins.set(details.id.toString(), requestOrigin);
-				}
-			}
-
-			callback({ requestHeaders: headers });
-		},
-	);
-
-	// secure CORS
-	session.defaultSession.webRequest.onHeadersReceived(
-		{ urls: ["http://localhost:*/*", "http://127.0.0.1:*/*"] },
-		(details, callback) => {
-			const headers = { ...details.responseHeaders };
-			const url = new URL(details.url);
-
-			// only apply configurations for localhost/127.0.0.1
-			if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-				// clean
-				// biome-ignore lint/performance/noDelete: <explanation>
-				delete headers["Access-Control-Allow-Origin"];
-				// biome-ignore lint/performance/noDelete: <explanation>
-				delete headers["access-control-allow-origin"];
-				// get request origin
-				const requestOrigin = details.id
-					? requestOrigins.get(details.id.toString())
-					: null;
-
-				// check origin
-				let allowedOrigin = "*";
-				if (requestOrigin) {
-					try {
-						const originUrl = new URL(requestOrigin);
-						if (
-							originUrl.hostname === "localhost" ||
-							originUrl.hostname === "127.0.0.1"
-						) {
-							allowedOrigin = requestOrigin;
-						}
-					} catch (e) {
-						// if fails, use fallback
-						// allowedOrigin = '*';
-					}
-				}
-
-				// custom CORS rules
-				headers["Access-Control-Allow-Origin"] = [allowedOrigin];
-				headers["Access-Control-Allow-Methods"] = [
-					"GET",
-					"POST",
-					"PUT",
-					"DELETE",
-					"OPTIONS",
-				];
-				headers["Access-Control-Allow-Headers"] = ["*"];
-				headers["Access-Control-Allow-Credentials"] = ["true"];
-				headers["X-Frame-Options"] = ["SAMEORIGIN"];
-
-				// clean up
-				if (details.id) {
-					requestOrigins.delete(details.id.toString());
-				}
-
-				// configure CSP for localhost
-				if (headers["Content-Security-Policy"]) {
-					headers["Content-Security-Policy"] = headers[
-						"Content-Security-Policy"
-					]
-						.map((v) => {
-							// clean frame-ancestors directive
-							return v.replace(
-								/frame-ancestors[^;]*;?/gi,
-								`frame-ancestors 'self' http://localhost:* http://127.0.0.1:* file: app:;`,
-							);
-						})
-						.filter((v) => v.trim() !== "");
-				} else {
-					// if no CSP, create a basic one that allows frames from localhost
-					headers["Content-Security-Policy"] = [
-						`frame-ancestors 'self' http://localhost:* http://127.0.0.1:* file: app:;`,
-					];
-				}
-
-				// security headers
-				headers["X-Content-Type-Options"] = ["nosniff"];
-				headers["X-XSS-Protection"] = ["1; mode=block"];
-				headers["Referrer-Policy"] = ["strict-origin-when-cross-origin"];
-			}
-
-			callback({ responseHeaders: headers });
-		},
-	);
 
 	autoUpdater.autoInstallOnAppQuit = false;
 	// autoUpdater.forceDevUpdateConfig = true;
@@ -714,39 +611,30 @@ app.whenReady().then(async () => {
 	});
 
 	// Set up IPC handlers
-	ipcMain.handle("check-first-launch", () => {
+	secureHandle("check-first-launch", () => {
 		let config = readConfig();
 		if (!config) {
 			logger.warn("First time using Dione");
 			writeConfig(defaultConfig);
 			return true;
-		} else {
-			if (config.defaultBinFolder !== config.defaultInstallFolder) {
-				writeConfig({
-					...config,
-					defaultBinFolder: config.defaultInstallFolder,
-					defaultInstallFolder: config.defaultInstallFolder,
-				});
-			}
+		}
+		if (config.defaultBinFolder !== config.defaultInstallFolder) {
+			writeConfig({
+				...config,
+				defaultBinFolder: config.defaultInstallFolder,
+				defaultInstallFolder: config.defaultInstallFolder,
+			});
 		}
 		config = readConfig();
 		return false;
 	});
 
-	ipcMain.handle("get-codename", () => {
+	secureHandle("get-codename", () => {
 		return readConfig().codename;
 	});
 
-	ipcMain.handle("delete-config", () => {
+	secureHandle("delete-config", () => {
 		deleteConfig();
-	});
-
-	ipcMain.on("socket-ready", () => {
-		logger.info("Server started successfully");
-	});
-
-	ipcMain.on("socket-error", () => {
-		logger.error("Socket connection failed");
 	});
 
 	// remove temp files on exit
@@ -770,19 +658,290 @@ app.whenReady().then(async () => {
 		}
 	});
 
-	ipcMain.on("ping", () => console.log("pong"));
+	secureOn("ping", () => console.log("pong"));
+	secureHandle("backend:get-port", () => port);
+	secureHandle("backend:get-socket-credentials", (_event, appId: unknown) => {
+		if (
+			typeof appId !== "string" ||
+			!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(appId)
+		)
+			throw new Error("Invalid socket application ID");
+		return { port, ticket: createSocketTicket(appId) };
+	});
+	secureHandle(
+		"backend:call",
+		async (_event, operation: unknown, params: any, init: any) => {
+			if (
+				typeof operation !== "string" ||
+				!params ||
+				typeof params !== "object" ||
+				Array.isArray(params)
+			)
+				throw new Error("Invalid backend operation");
+			const value = (name: string, max = 512) => {
+				const item = params[name];
+				if (
+					typeof item !== "string" ||
+					item.length === 0 ||
+					item.length > max ||
+					/[\0\r\n]/.test(item)
+				)
+					throw new Error(`Invalid backend parameter: ${name}`);
+				return encodeURIComponent(item);
+			};
+			const query = (allowed: string[]) => {
+				const result = new URLSearchParams();
+				for (const name of allowed) {
+					if (params[name] !== undefined)
+						result.set(name, decodeURIComponent(value(name, 4096)));
+				}
+				return result.toString();
+			};
+			let method: "GET" | "POST" | "PATCH" | "DELETE";
+			let requestPath: string;
+			switch (operation) {
+				case "config.get":
+					[method, requestPath] = ["GET", "/config"];
+					break;
+				case "config.patch":
+					[method, requestPath] = ["PATCH", "/config"];
+					break;
+				case "config.reset":
+					[method, requestPath] = ["POST", "/config/reset"];
+					break;
+				case "report.submit":
+					[method, requestPath] = ["POST", "/report"];
+					break;
+				case "dependencies.uninstall":
+					[method, requestPath] = ["POST", "/deps/uninstall"];
+					break;
+				case "dependencies.inUse":
+					[method, requestPath] = ["POST", "/deps/in-use"];
+					break;
+				case "dependencies.install":
+					[method, requestPath] = ["POST", `/deps/install/${value("id")}`];
+					break;
+				case "dependencies.cancel":
+					[method, requestPath] = ["POST", `/deps/cancel/${value("id")}`];
+					break;
+				case "database.featured":
+					[method, requestPath] = [
+						"GET",
+						`/db/featured?${query(["page", "limit"])}`,
+					];
+					break;
+				case "database.explore":
+					[method, requestPath] = [
+						"GET",
+						`/db/explore?${query(["page", "limit", "order_by", "order_type"])}`,
+					];
+					break;
+				case "database.search":
+					[method, requestPath] = ["GET", `/db/search/${value("id")}`];
+					break;
+				case "database.searchName":
+					[method, requestPath] = ["GET", `/db/search/name/${value("name")}`];
+					break;
+				case "database.searchType":
+					[method, requestPath] = [
+						"GET",
+						`/db/search/type/${value("type")}?${query(["page", "limit", "order_by", "order_type"])}`,
+					];
+					break;
+				case "search.name":
+					[method, requestPath] = [
+						"GET",
+						`/searchbar/name/${value("name")}?${query(["page", "limit", "order_by", "order_type"])}`,
+					];
+					break;
+				case "search.type":
+					[method, requestPath] = [
+						"GET",
+						`/searchbar/type/${value("name")}/${value("type")}?${query(["page", "limit", "order_by", "order_type"])}`,
+					];
+					break;
+				case "local.list":
+					[method, requestPath] = ["GET", "/local/"];
+					break;
+				case "local.installed":
+					[method, requestPath] = ["GET", `/local/installed/${value("name")}`];
+					break;
+				case "local.getApp":
+					[method, requestPath] = ["GET", `/local/get_app/${value("name")}`];
+					break;
+				case "local.getId":
+					[method, requestPath] = ["GET", `/local/get_id/${value("id")}`];
+					break;
+				case "local.load":
+					[method, requestPath] = ["POST", `/local/load/${value("name")}`];
+					break;
+				case "local.delete":
+					[method, requestPath] = ["DELETE", `/local/delete/${value("name")}`];
+					break;
+				case "local.upload":
+					[method, requestPath] = [
+						"POST",
+						`/local/upload/${value("filePath", 4096)}/${value("name")}/${value("description", 4096)}`,
+					];
+					break;
+				case "scripts.installed":
+					[method, requestPath] = ["GET", "/scripts/installed"];
+					break;
+				case "scripts.isInstalled":
+					[method, requestPath] = [
+						"GET",
+						`/scripts/installed/${value("name")}`,
+					];
+					break;
+				case "scripts.checkUpdate":
+					[method, requestPath] = ["POST", "/scripts/check-update"];
+					break;
+				case "scripts.download":
+					[method, requestPath] = [
+						"GET",
+						`/scripts/download/${value("id")}${params.force === "true" ? "?force=true" : ""}`,
+					];
+					break;
+				case "scripts.start":
+					[method, requestPath] = [
+						"POST",
+						`/scripts/start/${value("name")}/${value("id")}${params.start ? `?start=${value("start")}` : ""}`,
+					];
+					break;
+				case "scripts.stop":
+					[method, requestPath] = [
+						"GET",
+						`/scripts/stop/${value("name")}/${value("id")}`,
+					];
+					break;
+				case "scripts.delete":
+					[method, requestPath] = ["GET", `/scripts/delete/${value("name")}`];
+					break;
+				case "scripts.startOptions":
+					[method, requestPath] = [
+						"GET",
+						`/scripts/start-options/${value("name")}`,
+					];
+					break;
+				case "files.read": {
+					const action = params.action;
+					if (!["root", "list", "content"].includes(action))
+						throw new Error("Invalid file read operation");
+					[method, requestPath] = [
+						"GET",
+						`/files/${action}/${value("name")}?${query(["appId", "dir", "file"])}`,
+					];
+					break;
+				}
+				case "files.mutate": {
+					const action = params.action;
+					if (!["save", "delete", "create", "rename"].includes(action))
+						throw new Error("Invalid file mutation operation");
+					[method, requestPath] = [
+						"POST",
+						`/files/${action}/${value("name")}?${query(["appId"])}`,
+					];
+					break;
+				}
+				case "ai.models":
+					[method, requestPath] = ["GET", "/ai/ollama/models"];
+					break;
+				case "ai.availableModels":
+					[method, requestPath] = ["GET", "/ai/ollama/available-models"];
+					break;
+				case "ai.isInstalled":
+					[method, requestPath] = ["GET", "/ai/ollama/isinstalled"];
+					break;
+				case "ai.install":
+					[method, requestPath] = ["POST", "/ai/ollama/install"];
+					break;
+				case "ai.stop":
+					[method, requestPath] = ["POST", "/ai/ollama/stop"];
+					break;
+				case "ai.start":
+					[method, requestPath] = ["POST", "/ai/ollama/start"];
+					break;
+				case "ai.chat":
+					[method, requestPath] = ["POST", "/ai/ollama/chat"];
+					break;
+				case "ai.downloadModel":
+					[method, requestPath] = [
+						"POST",
+						`/ai/ollama/download-model?model=${value("model")}`,
+					];
+					break;
+				default:
+					throw new Error("Unsupported backend operation");
+			}
+			if (
+				init?.body !== undefined &&
+				(typeof init.body !== "string" || init.body.length > 2_000_000)
+			)
+				throw new Error("Invalid backend request body");
+			const contentType =
+				init?.headers?.["content-type"] || init?.headers?.["Content-Type"];
+			if (contentType !== undefined && typeof contentType !== "string")
+				throw new Error("Invalid backend Content-Type");
+			const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, {
+				method,
+				headers: {
+					Authorization: `Bearer ${getBackendToken()}`,
+					...(contentType ? { "Content-Type": contentType } : {}),
+				},
+				body: method === "GET" ? undefined : init?.body,
+			});
+			const body = await response.text();
+			if (body.length > 16_000_000)
+				throw new Error("Backend response is too large");
+			return {
+				status: response.status,
+				statusText: response.statusText,
+				headers: [...response.headers.entries()],
+				body,
+			};
+		},
+	);
 
-	ipcMain.on("terminal:resize", (_event, { id, cols, rows }) => {
-		if (id && cols && rows) {
+	secureOn("terminal:resize", (_event, payload) => {
+		const { id, cols, rows } = payload ?? {};
+		if (
+			typeof id === "string" &&
+			/^[A-Za-z0-9_-]{1,128}$/.test(id) &&
+			Number.isInteger(cols) &&
+			cols >= 1 &&
+			cols <= 500 &&
+			Number.isInteger(rows) &&
+			rows >= 1 &&
+			rows <= 300
+		) {
 			resizeTerminal(id, cols, rows);
 		}
 	});
 
-	ipcMain.handle("get-locale", () => {
+	secureHandle("get-locale", () => {
 		return app.getLocale();
 	});
 
-	ipcMain.handle("app:close", async () => {
+	secureHandle("local-script:approve", async (_event, name: unknown) => {
+		if (typeof name !== "string") throw new Error("Invalid local script name");
+		const appPath = await resolveCanonicalAppPath(name, { mustExist: true });
+		const manifestPath = path.join(appPath, "dione.json");
+		const result = await dialog.showMessageBox(mainWindow, {
+			type: "warning",
+			buttons: ["Cancel", "Run unverified script"],
+			defaultId: 0,
+			cancelId: 0,
+			noLink: true,
+			title: "Run unverified local script?",
+			message: `Allow “${name}” to run native commands?`,
+			detail:
+				"This local script is not publisher verified. Only continue if you trust its source. Approval is bound to the current manifest and expires after one minute.",
+		});
+		if (result.response !== 1) return null;
+		return createLocalApproval(manifestPath);
+	});
+
+	secureHandle("app:close", async () => {
 		mainWindow.hide();
 		try {
 			await requestShutdown();
@@ -793,7 +952,7 @@ app.whenReady().then(async () => {
 		}
 	});
 
-	ipcMain.handle("app:minimize", () => {
+	secureHandle("app:minimize", () => {
 		const win = BrowserWindow.getFocusedWindow();
 		if (win) {
 			win.minimize();
@@ -808,10 +967,10 @@ app.whenReady().then(async () => {
 		});
 	}
 
-	ipcMain.handle("get-version", () => app.getVersion());
+	secureHandle("get-version", () => app.getVersion());
 
 	// Add Discord presence update handler
-	ipcMain.handle(
+	secureHandle(
 		"update-discord-presence",
 		(_event, details: string, state: string) => {
 			updatePresence(details, state);
@@ -819,9 +978,17 @@ app.whenReady().then(async () => {
 	);
 
 	// notifications
-	ipcMain.handle(
+	secureHandle(
 		"notify",
 		(_event, title: string, body: string, xml?: string) => {
+			if (
+				typeof title !== "string" ||
+				title.length > 200 ||
+				typeof body !== "string" ||
+				body.length > 2000 ||
+				(xml !== undefined && (typeof xml !== "string" || xml.length > 10_000))
+			)
+				throw new TypeError("Invalid notification payload");
 			const settings = readConfig();
 			const options: Electron.NotificationConstructorOptions = {
 				title,
@@ -844,30 +1011,32 @@ app.whenReady().then(async () => {
 	);
 
 	// save dir
-	ipcMain.handle("save-dir", async (_event, path: string) => {
-		const fs = require("fs");
+	secureHandle("save-dir", async (_event, requestedPath: unknown) => {
+		const fs = require("node:fs");
+		let selectedPath =
+			typeof requestedPath === "string" && requestedPath.length <= 4096
+				? requestedPath
+				: app.getPath("downloads");
 
-		if (!path) {
-			path = app.getPath("downloads");
-		} else {
+		if (selectedPath) {
 			// Check if path exists, if not use downloads as fallback
 			try {
-				if (!fs.existsSync(path)) {
+				if (!fs.existsSync(selectedPath)) {
 					console.log(
-						`Path does not exist: ${path}, using downloads as fallback`,
+						`Path does not exist: ${selectedPath}, using downloads as fallback`,
 					);
-					path = app.getPath("downloads");
+					selectedPath = app.getPath("downloads");
 				}
 			} catch (err) {
 				console.error(`Error checking path: ${err}`);
-				path = app.getPath("downloads");
+				selectedPath = app.getPath("downloads");
 			}
 		}
 
-		console.log(`Opening folder picker with defaultPath: ${path}`);
+		console.log(`Opening folder picker with defaultPath: ${selectedPath}`);
 
 		const result = await dialog.showOpenDialog({
-			defaultPath: path,
+			defaultPath: selectedPath,
 			properties: ["openDirectory"],
 			title: "Select a directory",
 			message: "Select a directory",
@@ -880,9 +1049,13 @@ app.whenReady().then(async () => {
 	});
 
 	// select file
-	ipcMain.handle("select-file", async (_event, path: string) => {
+	secureHandle("select-file", async (_event, requestedPath: unknown) => {
+		const selectedPath =
+			typeof requestedPath === "string" && requestedPath.length <= 4096
+				? requestedPath
+				: "";
 		const result = await dialog.showOpenDialog({
-			defaultPath: path,
+			defaultPath: selectedPath,
 			properties: ["openFile"],
 			title: "Select a file",
 			message: "Select a file",
@@ -894,7 +1067,13 @@ app.whenReady().then(async () => {
 	});
 
 	// check dir
-	ipcMain.handle("check-dir", async (_event, dirValue: string) => {
+	secureHandle("check-dir", async (_event, dirValue: string) => {
+		if (
+			typeof dirValue !== "string" ||
+			!path.isAbsolute(dirValue) ||
+			dirValue.length > 4096
+		)
+			return false;
 		const root = app.isPackaged
 			? path.join(path.dirname(app.getPath("exe")))
 			: path.join(process.cwd());
@@ -916,7 +1095,10 @@ app.whenReady().then(async () => {
 	});
 
 	// update config
-	ipcMain.handle("update-config", (_event, newValue: any) => {
+	secureHandle("update-config", (_event, newValue: any) => {
+		if (!newValue || typeof newValue !== "object" || Array.isArray(newValue)) {
+			throw new TypeError("Invalid config payload");
+		}
 		let currentConfig = readConfig();
 		if (!currentConfig) {
 			logger.warn("No config found, creating a new one");
@@ -943,31 +1125,51 @@ app.whenReady().then(async () => {
 		return updatedConfig;
 	});
 
-	ipcMain.handle("init-env", () => {
+	secureHandle("init-env", () => {
 		logger.info("Starting with default env...");
 		initDefaultEnv();
 	});
 
 	// open dir
-	ipcMain.handle("open-dir", async (_event, path: string) => {
-		await shell.openPath(path);
+	secureHandle("open-dir", async (_event, targetPath: unknown) => {
+		if (
+			typeof targetPath !== "string" ||
+			!path.isAbsolute(targetPath) ||
+			targetPath.length > 4096
+		) {
+			throw new TypeError("Invalid path");
+		}
+		const resolved = path.resolve(targetPath);
+		const config = readConfig();
+		const roots = [config?.defaultInstallFolder, config?.defaultBinFolder]
+			.filter((root): root is string => typeof root === "string")
+			.map((root) => path.resolve(root));
+		if (
+			!roots.some(
+				(root) =>
+					resolved === root || resolved.startsWith(`${root}${path.sep}`),
+			)
+		) {
+			throw new Error("Path is outside managed directories");
+		}
+		await shell.openPath(resolved);
 	});
 
 	// Open external links
-	ipcMain.handle("open-external-link", (_event, url) => {
+	secureHandle("open-external-link", (_event, url) => {
 		return openHttpsExternal(url);
 	});
 
-	ipcMain.handle("check-update", () => {
+	secureHandle("check-update", () => {
 		autoUpdater.checkForUpdates();
 	});
 
-	ipcMain.handle("check-update-and-notify", () => {
+	secureHandle("check-update-and-notify", () => {
 		autoUpdater.checkForUpdatesAndNotify();
 	});
 
 	// export debug logs
-	ipcMain.handle("export-debug-logs", async () => {
+	secureHandle("export-debug-logs", async () => {
 		try {
 			// show save dialog
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -998,105 +1200,27 @@ app.whenReady().then(async () => {
 		}
 	});
 
-	ipcMain.on("restart_app", async () => {
+	secureOn("restart_app", async () => {
 		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("quit_and_install", async () => {
+	secureOn("quit_and_install", async () => {
 		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("download_and_restart", async () => {
+	secureOn("download_and_restart", async () => {
 		await autoUpdater.downloadUpdate();
 		await requestShutdown();
 		autoUpdater.quitAndInstall();
 	});
 
-	ipcMain.on("restart", async () => {
+	secureOn("restart", async () => {
 		await requestShutdown();
 		app.relaunch();
 		app.exit();
 	});
-
-	async function handleStartSession({ user }: { user: any }) {
-		if (!port) return;
-		if (sessionId) return;
-		if (!app.isPackaged) return;
-
-		if (user) {
-			const response = await fetch(`http://localhost:${port}/db/events`, {
-				method: "POST",
-				headers: {
-					user: user.id,
-					type: "event",
-					event: "session",
-					started_at: new Date().toISOString(),
-				},
-			});
-			let data: any = null;
-			try {
-				const contentType = response.headers.get("content-type") || "";
-				if (contentType.includes("application/json")) {
-					data = await response.json();
-				} else {
-					const bodyText = await response.text();
-					logger.warn(
-						`/db/events returned non-JSON (${
-							contentType || "unknown"
-						}). Body: ${bodyText.slice(0, 200)}`,
-					);
-					data = { raw: bodyText };
-				}
-			} catch (e: any) {
-				logger.error(`Failed to parse /db/events response: ${e?.message || e}`);
-			}
-			if (response.ok && response.status === 200) {
-				if (data || data.id) {
-					logger.info(`Session started with ID: ${data.id}`);
-					sessionId = data.id;
-				} else {
-					logger.warn(
-						"Session start response lacked an ID; skipping sessionId set.",
-					);
-				}
-			} else {
-				if (data && data.error === "Database connection not available") {
-					logger.error(
-						"Database connection not available, please check your environment variables and your connection.",
-					);
-					return;
-				}
-				logger.error("Failed to start session");
-				logger.error(response.statusText);
-			}
-		}
-	}
-
-	async function handleEndSession() {
-		if (sessionId) {
-			if (!app.isPackaged) return;
-
-			logger.info(`Ending session with ID: ${sessionId}`);
-			const response = await fetch(`http://localhost:${port}/db/events`, {
-				method: "POST",
-				headers: {
-					id: sessionId,
-					update: "true",
-				},
-			});
-			if (response.ok) {
-				logger.info("Session ended successfully");
-				return true;
-			}
-			logger.error("Failed to end session");
-			logger.error(response.statusText);
-			return false;
-		}
-		logger.info("No session to end");
-		return false;
-	}
 
 	function shutdown(): Promise<void> {
 		if (shutdownPromise) return shutdownPromise;
@@ -1114,9 +1238,11 @@ app.whenReady().then(async () => {
 					port
 						? fetch(`http://localhost:${port}/ai/ollama/stop`, {
 								method: "POST",
+								headers: {
+									Authorization: `Bearer ${getBackendToken()}`,
+								},
 							})
 						: Promise.resolve(),
-					handleEndSession(),
 				]);
 				let backendTimer: ReturnType<typeof setTimeout> | undefined;
 				const backendResults = await Promise.race([
@@ -1155,14 +1281,6 @@ app.whenReady().then(async () => {
 	}
 	shutdownHandler = shutdown;
 
-	ipcMain.on("start-session", (_event, { user }) => {
-		handleStartSession({ user });
-	});
-	ipcMain.handle("end-session", async (_event) => {
-		const result = await handleEndSession();
-		return result;
-	});
-
 	// handle protocols
 	if (process.env.NODE_ENV !== "development") {
 		app.setAsDefaultProtocolClient("dione");
@@ -1174,7 +1292,7 @@ app.whenReady().then(async () => {
 	});
 
 	// Get network address for sharing
-	ipcMain.handle("get-network-address", async () => {
+	secureHandle("get-network-address", async () => {
 		const networkIP = getLocalNetworkIP();
 
 		if (!networkIP || !port) {
@@ -1189,7 +1307,7 @@ app.whenReady().then(async () => {
 	});
 
 	// Start tunnel (Localtunnel)
-	ipcMain.handle("start-tunnel", async () => {
+	secureHandle("start-tunnel", async () => {
 		try {
 			if (!port) {
 				throw new Error("Server port not available");
@@ -1207,7 +1325,7 @@ app.whenReady().then(async () => {
 	});
 
 	// Stop tunnel
-	ipcMain.handle("stop-tunnel", async () => {
+	secureHandle("stop-tunnel", async () => {
 		try {
 			await stopTunnel();
 			logger.info("Tunnel stopped successfully");
@@ -1219,18 +1337,24 @@ app.whenReady().then(async () => {
 	});
 
 	// Get current tunnel info
-	ipcMain.handle("get-current-tunnel", () => {
+	secureHandle("get-current-tunnel", () => {
 		return getCurrentTunnel();
 	});
 
 	// Check if tunnel is active
-	ipcMain.handle("is-tunnel-active", () => {
+	secureHandle("is-tunnel-active", () => {
 		return isTunnelActive();
 	});
 
 	// Shorten URL
-	ipcMain.handle("shorten-url", async (_event, url: string) => {
+	secureHandle("shorten-url", async (_event, url: string) => {
 		try {
+			if (
+				typeof url !== "string" ||
+				url.length > 2048 ||
+				new URL(url).protocol !== "https:"
+			)
+				return null;
 			return await shortenUrl(url);
 		} catch (error) {
 			logger.error("Failed to shorten URL:", error);
@@ -1238,55 +1362,55 @@ app.whenReady().then(async () => {
 		}
 	});
 
-	ipcMain.handle("get-logs", async () => {
+	secureHandle("get-logs", async () => {
 		return getLogs();
 	});
 
 	// Set up IPC handlers
-	ipcMain.handle("get-hwid", () => {
+	secureHandle("get-hwid", () => {
 		return machineIdSync(true); // true for hashed version
 	});
 
 	// removed auth stuff to avoid security risks, read more in README.md
 	// handle secure token
-	// ipcMain.handle("secure-token:save", (_event, token: string) => {
+	// secureHandle("secure-token:save", (_event, token: string) => {
 	// 	return saveToken(token);
 	// });
 
-	// ipcMain.handle("secure-token:get", () => {
+	// secureHandle("secure-token:get", () => {
 	// 	return getToken();
 	// });
 
-	// ipcMain.handle("secure-token:delete", () => {
+	// secureHandle("secure-token:delete", () => {
 	// 	return deleteToken();
 	// });
 
-	// ipcMain.handle("secure-token:save-expiresAt", (_event, expiresAt: number) => {
+	// secureHandle("secure-token:save-expiresAt", (_event, expiresAt: number) => {
 	// 	return saveExpiresAt(expiresAt);
 	// });
 
-	// ipcMain.handle("secure-token:get-expiresAt", () => {
+	// secureHandle("secure-token:get-expiresAt", () => {
 	// 	return getExpiresAt();
 	// });
 
-	// ipcMain.handle("secure-token:delete-expiresAt", () => {
+	// secureHandle("secure-token:delete-expiresAt", () => {
 	// 	return deleteExpiresAt();
 	// });
 
-	// ipcMain.handle("secure-token:save-id", (_event, id: string) => {
+	// secureHandle("secure-token:save-id", (_event, id: string) => {
 	// 	return saveId(id);
 	// });
 
-	// ipcMain.handle("secure-token:get-id", () => {
+	// secureHandle("secure-token:get-id", () => {
 	// 	return getId();
 	// });
 
-	// ipcMain.handle("secure-token:delete-id", () => {
+	// secureHandle("secure-token:delete-id", () => {
 	// 	return deleteId();
 	// });
 
 	// restart backend
-	ipcMain.handle("restart-backend", async () => {
+	secureHandle("restart-backend", async () => {
 		try {
 			logger.info("Restarting backend...");
 			const stopBackend = Promise.allSettled([stopTunnel(), stopServer()]).then(
@@ -1322,7 +1446,7 @@ app.whenReady().then(async () => {
 	});
 
 	// system usage monitoring
-	ipcMain.handle("get-system-usage", async () => {
+	secureHandle("get-system-usage", async () => {
 		try {
 			try {
 				// get cpu usage
@@ -1363,7 +1487,9 @@ app.whenReady().then(async () => {
 				};
 
 				const result = {
+					cpu: 0,
 					ram: ramUsage,
+					disk: 0,
 				};
 
 				return result;
@@ -1380,7 +1506,25 @@ app.whenReady().then(async () => {
 
 let previewWindow: BrowserWindow | null = null;
 
-ipcMain.on("new-window", (_event, url) => {
+const parseLoopbackPreviewUrl = (value: unknown): string | null => {
+	if (typeof value !== "string" || value.length > 2048) return null;
+	try {
+		const url = new URL(value);
+		if (
+			url.protocol !== "http:" ||
+			(url.hostname !== "localhost" && url.hostname !== "127.0.0.1") ||
+			!url.port
+		)
+			return null;
+		return url.toString();
+	} catch {
+		return null;
+	}
+};
+
+secureOn("new-window", (_event, value) => {
+	const url = parseLoopbackPreviewUrl(value);
+	if (!url) return;
 	if (previewWindow && !previewWindow.isDestroyed()) {
 		previewWindow.focus();
 		return;
@@ -1391,18 +1535,35 @@ ipcMain.on("new-window", (_event, url) => {
 		height: 400,
 		autoHideMenuBar: true,
 		closable: true,
+		webPreferences: {
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			webSecurity: true,
+			allowRunningInsecureContent: false,
+			webviewTag: false,
+		},
 		...(process.platform === "win32" ? { icon: getIconPath("win32") } : {}),
 		...(process.platform === "linux" ? { icon: getIconPath("linux") } : {}),
 		...(process.platform === "darwin" ? { icon: getIconPath("darwin") } : {}),
 	});
 
 	previewWindow.loadURL(url);
+	const previewOrigin = new URL(url).origin;
+	previewWindow.webContents.on("will-navigate", (event, target) => {
+		const parsed = parseLoopbackPreviewUrl(target);
+		if (!parsed || new URL(parsed).origin !== previewOrigin)
+			event.preventDefault();
+	});
+	previewWindow.webContents.on("will-redirect", (event, target) => {
+		const parsed = parseLoopbackPreviewUrl(target);
+		if (!parsed || new URL(parsed).origin !== previewOrigin)
+			event.preventDefault();
+	});
 	previewWindow.maximize();
 	previewWindow.focus();
 
-	previewWindow.webContents.setWindowOpenHandler(
-		buildWindowOpenHandler(previewWindow.webContents),
-	);
+	previewWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
 	previewWindow.on("close", () => {
 		console.log("Closing preview window...");
@@ -1415,25 +1576,23 @@ ipcMain.on("new-window", (_event, url) => {
 	});
 });
 
-ipcMain.on("close-preview-window", () => {
+secureOn("close-preview-window", () => {
 	if (previewWindow) {
 		previewWindow.destroy();
 	}
 });
 
-ipcMain.handle("check-folder-size", async (_event, folderPath) => {
+secureHandle("check-folder-size", async (_event, folderPath) => {
 	const config = readConfig();
 	const defaultFolder =
 		config?.defaultBinFolder ||
 		config?.defaultInstallFolder ||
 		path.join(app.getPath("userData"));
 
-	if (!folderPath) {
-		folderPath = path.join(defaultFolder, "bin", "cache");
-	}
+	const targetFolder = folderPath || path.join(defaultFolder, "bin", "cache");
 
-	if (!fs.existsSync(folderPath)) {
-		console.warn(`Folder does not exist: ${folderPath}`);
+	if (!fs.existsSync(targetFolder)) {
+		console.warn(`Folder does not exist: ${targetFolder}`);
 		return "0.00";
 	}
 
@@ -1452,7 +1611,7 @@ ipcMain.handle("check-folder-size", async (_event, folderPath) => {
 
 			for (const file of files) {
 				const filePath = path.join(dir, file);
-				let stat;
+				let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
 				try {
 					stat = await fs.promises.stat(filePath);
 				} catch (err) {
@@ -1474,7 +1633,7 @@ ipcMain.handle("check-folder-size", async (_event, folderPath) => {
 	}
 
 	try {
-		const sizeBytes = await getFolderSize(folderPath);
+		const sizeBytes = await getFolderSize(targetFolder);
 		const sizeGB = sizeBytes / (1024 * 1024 * 1024);
 		return `${sizeGB.toFixed(2)}`;
 	} catch (err) {
@@ -1496,37 +1655,34 @@ const warnFolders = [
 	"WindowsApps",
 ];
 
-ipcMain.handle("delete-folder", async (_event, folderPath) => {
+secureHandle("delete-folder", async (_event, folderPath) => {
 	const config = readConfig();
 
 	if (
-		!folderPath &&
-		(config?.defaultBinFolder || config?.defaultInstallFolder)
+		!(!folderPath && (config?.defaultBinFolder || config?.defaultInstallFolder))
 	) {
-		folderPath = path.join(
-			config?.defaultBinFolder ||
-				path.join(config?.defaultInstallFolder, "bin"),
-			"cache",
-		);
-	} else {
 		return false;
 	}
+	const targetFolder = path.join(
+		config?.defaultBinFolder || path.join(config?.defaultInstallFolder, "bin"),
+		"cache",
+	);
 
-	if (!fs.existsSync(folderPath)) {
-		console.warn(`Folder does not exist: ${folderPath}`);
+	if (!fs.existsSync(targetFolder)) {
+		console.warn(`Folder does not exist: ${targetFolder}`);
 		return true;
 	}
 
-	if (warnFolders.includes(path.basename(folderPath))) {
+	if (warnFolders.includes(path.basename(targetFolder))) {
 		dialog.showErrorBox(
 			"Warning",
-			`You are trying to delete a protected folder: ${folderPath}`,
+			`You are trying to delete a protected folder: ${targetFolder}`,
 		);
 		return false;
 	}
 
 	try {
-		await fs.promises.rm(folderPath, { recursive: true, force: true });
+		await fs.promises.rm(targetFolder, { recursive: true, force: true });
 		return true;
 	} catch (error) {
 		console.error("Error deleting folder:", error);
@@ -1534,7 +1690,7 @@ ipcMain.handle("delete-folder", async (_event, folderPath) => {
 	}
 });
 
-ipcMain.handle("capture-screenshot", async (event, options = {}) => {
+secureHandle("capture-screenshot", async (event, options = {}) => {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (!win) return;
 

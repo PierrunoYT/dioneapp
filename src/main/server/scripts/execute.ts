@@ -8,6 +8,7 @@ import {
 	log,
 	stopActiveProcess,
 } from "@/server/scripts/process";
+import { loadTrustedManifest } from "@/server/scripts/trust";
 import type { Variable } from "@/server/scripts/types/dione-types";
 import { customEnvironment } from "@/server/scripts/utils/environment";
 import logger from "@/server/utils/logger";
@@ -18,11 +19,6 @@ import {
 import type { Server } from "socket.io";
 import { createVirtualEnvCommands } from "./dependencies/env-utils";
 import { addValue } from "./dependencies/environment";
-async function readConfig(pathname: string) {
-	const config = await fs.promises.readFile(pathname, "utf8");
-	return JSON.parse(config);
-}
-
 async function patchNetworkAccess(configDir: string) {
 	try {
 		const files = await fs.promises.readdir(configDir, { withFileTypes: true });
@@ -58,7 +54,7 @@ export default async function executeInstallation(
 	io: Server,
 	id: string,
 ) {
-	const config = await readConfig(pathname);
+	const config = await loadTrustedManifest(pathname);
 	const configDir = path.dirname(pathname);
 	const installation = config.installation || [];
 	const dependenciesObj = config.dependencies || {};
@@ -123,7 +119,7 @@ export default async function executeInstallation(
 					customEnv = await getEnhancedEnv(needsBuildTools || false);
 				}
 
-				let resp;
+				let resp: any;
 				// if exists env property, create virtual environment and execute commands inside it
 				if (step.env) {
 					const envName =
@@ -231,7 +227,7 @@ export default async function executeInstallation(
 				const results = await Promise.all(pendingPromises);
 				pendingPromises.length = 0;
 
-				if (results.some((res) => res && res.cancelled)) {
+				if (results.some((res) => res?.cancelled)) {
 					logger.info("Installation loop stopped due to cancellation.");
 					return; // stop
 				}
@@ -268,9 +264,9 @@ export async function executeStartup(
 	io: Server,
 	id: string,
 	startName?: string,
-	replaceCommands?: Record<string, string>,
 ) {
-	const config = await readConfig(path.join(pathname, "dione.json"));
+	const manifestPath = path.join(pathname, "dione.json");
+	const config = await loadTrustedManifest(manifestPath);
 	const configDir = pathname;
 	const dependenciesObj = config.dependencies || {};
 	const dependencies = Object.keys(dependenciesObj);
@@ -317,7 +313,7 @@ export async function executeStartup(
 		return;
 	}
 
-	let selectedStart;
+	let selectedStart: any;
 	if (startName) {
 		selectedStart = config.start?.find(
 			(s: any) => s.name.toLowerCase() === startName.toLowerCase(),
@@ -404,15 +400,6 @@ export async function executeStartup(
 				} else {
 					commandStr = cmd.toString();
 				}
-				if (replaceCommands && commandStr in replaceCommands) {
-					log(
-						io,
-						id,
-						`INFO: Replacing command "${commandStr}" with "${replaceCommands[commandStr]}"`,
-					);
-					return replaceCommands[commandStr];
-				}
-
 				return commandStr;
 			});
 
@@ -461,7 +448,7 @@ export async function executeStartup(
 				}
 			};
 
-			let response;
+			let response: any;
 
 			if (selectedStart.env) {
 				const envName =

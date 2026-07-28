@@ -46,10 +46,15 @@ export function createLocalScriptsRouter(io: Server) {
 		}
 	});
 
-	router.get("/load/:name", async (req, res) => {
+	router.post("/load/:name", async (req, res) => {
 		const { name } = req.params;
 		try {
-			await loadLocalScript(name, io);
+			if (typeof req.body?.approvalNonce !== "string") {
+				return res.status(400).json({
+					error: "A trusted local-script approval is required",
+				});
+			}
+			await loadLocalScript(name, io, req.body.approvalNonce);
 			res.send("Script installed successfully.");
 		} catch (error: any) {
 			logger.error(

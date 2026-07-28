@@ -280,11 +280,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 				setShow({ [data?.id]: "iframe" });
 				setIframeAvailable((prev) => ({ ...prev, [data?.id]: true }));
 				showToast("default", `${data.name || "Script"} has opened a preview.`);
-				window.electron.ipcRenderer.invoke(
-					"notify",
-					"Preview...",
-					`${data.name} has opened a preview.`,
-				);
+				window.dione.notify("Preview...", `${data.name} has opened a preview.`);
 			}
 
 			isLoadingIframeRef.current = false;
@@ -341,7 +337,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 
 			const connectPromise = (async () => {
 				const existing = socketsRef.current[appId];
-				if (existing && existing.socket) {
+				if (existing?.socket) {
 					try {
 						// already fully connected -> nothing to do
 						if (existing.socket.connected) {
@@ -531,8 +527,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 				if (response.status === 200) {
 					setShow((prev) => ({ ...prev, [appId]: "actions" }));
 					if (!wasJustInstalled) {
-						window.electron.ipcRenderer.invoke(
-							"notify",
+						window.dione.notify(
 							"Stopping...",
 							`${appName} stopped successfully.`,
 						);
@@ -545,11 +540,7 @@ export function ScriptsContext({ children }: { children: React.ReactNode }) {
 				}
 			} catch (error) {
 				showToast("error", `Error stopping ${appName}: ${error}`);
-				window.electron.ipcRenderer.invoke(
-					"notify",
-					"Error...",
-					`Error stopping ${appName}: ${error}`,
-				);
+				window.dione.notify("Error...", `Error stopping ${appName}: ${error}`);
 				addLogLine(appId, `Error stopping ${appName}: ${error}`);
 			} finally {
 				disconnectApp(appId);

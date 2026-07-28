@@ -116,7 +116,7 @@ export default function Messages({
 										const CodeBlockWithCopy = () => {
 											const [copied, setCopied] = useState(false);
 											const handleCopy = () => {
-												window.copyToClipboard.writeText(codeText);
+												window.dione.copyText(codeText);
 												setCopied(true);
 												setTimeout(() => setCopied(false), 1500);
 											};

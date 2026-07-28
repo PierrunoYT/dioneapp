@@ -2,9 +2,9 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import type { Server } from "socket.io";
-import { readDioneConfig } from "./dependencies/dependencies";
 import { createVirtualEnvCommands } from "./dependencies/env-utils";
 import { executeCommand, executeCommands, log } from "./process";
+import { loadTrustedManifest } from "./trust";
 
 const SCAN_MAX_DEPTH = 8;
 const SCAN_MAX_ENTRIES = 10_000;
@@ -74,44 +74,20 @@ export async function updateScript(
 	id: string,
 	signal?: AbortSignal,
 ) {
-	const dione = await readDioneConfig(dioneFile);
+	const dione = await loadTrustedManifest(dioneFile);
 	const dependencies = Object.keys(dione.dependencies || {});
-	let projectDir = workingDir;
+	const projectDir = workingDir;
 
 	log(io, id, "INFO: Starting update process...");
 
 	// Update git repository
 	if (dependencies.includes("git")) {
-		if (!fs.existsSync(path.join(projectDir, ".git"))) {
-			try {
-				const entries = fs.readdirSync(projectDir, { withFileTypes: true });
-				const gitDir = entries.find(
-					(entry) =>
-						entry.isDirectory() &&
-						fs.existsSync(path.join(projectDir, entry.name, ".git")),
-				);
-				if (gitDir) {
-					projectDir = path.join(projectDir, gitDir.name);
-					log(io, id, `INFO: Found git repository in ${gitDir.name}`);
-				}
-			} catch (error) {
-				log(io, id, `WARN: Error searching for git repository: ${error}`);
-			}
-		}
-
-		log(io, id, "INFO: pulling latest changes...");
-		const gitPull = await executeCommand("git pull", io, projectDir, id);
-
-		if (gitPull.code !== 0) {
-			log(io, id, `ERROR: Git pull failed: ${gitPull.stderr}`);
-			return false;
-		}
-
-		if (gitPull.stdout.includes("Already up to date.")) {
-			log(io, id, "INFO: Code is already up to date.");
-		} else {
-			log(io, id, "INFO: Code updated successfully.");
-		}
+		log(
+			io,
+			id,
+			"ERROR: Mutable git pull is disabled. Install an upstream release pinned to a signed commit instead.",
+		);
+		return false;
 	}
 
 	const projectEnv = getProjectEnv(dione);

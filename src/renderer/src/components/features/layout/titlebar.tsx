@@ -30,21 +30,19 @@ export default function Titlebar() {
 				setExitRef(true);
 			} else {
 				await apiFetch("/ai/ollama/stop", { method: "POST" });
-				window.electron.ipcRenderer.invoke("app:close");
+				window.dione.closeApp();
 			}
 		} else {
-			window.electron.ipcRenderer.invoke("app:close");
+			window.dione.closeApp();
 		}
 	};
 
 	const handleMinimize = async () => {
-		await window.electron.ipcRenderer.invoke("app:minimize");
+		await window.dione.minimizeApp();
 	};
 
 	const handleMaximize = async () => {
-		const maximized = await window.electron.ipcRenderer.invoke(
-			"app:toggle-maximize",
-		);
+		const maximized = await window.dione.toggleMaximize();
 		setIsMaximized(maximized);
 	};
 

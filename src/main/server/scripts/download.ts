@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import https from "node:https";
 import path from "node:path";
@@ -5,7 +6,11 @@ import { pipeline } from "node:stream/promises";
 import { checkDependencies } from "@/server/scripts/dependencies/dependencies";
 import executeInstallation from "@/server/scripts/execute";
 import { checkSystem } from "@/server/scripts/system";
-import { resolveScriptPaths } from "@/server/scripts/utils/paths";
+import { verifyAndRecordRemoteManifest } from "@/server/scripts/trust";
+import {
+	resolveCanonicalAppPath,
+	validateAppId,
+} from "@/server/scripts/utils/paths";
 import { supabase } from "@/server/utils/database";
 import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
@@ -42,16 +47,36 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 			return null;
 		}
 
-		const { workingDir: saveDirectory } = resolveScriptPaths(data.name);
+		const appId = validateAppId(data.name);
+		let saveDirectory = await resolveCanonicalAppPath(appId);
 		const script_url = data.script_url;
-		const commit_hashes = data.commit_hash || {};
-		const commit = commit_hashes[data.version] || "";
+		const commitHashes = data.commit_hash || {};
+		const commit = commitHashes[data.version] || "";
+		const trustMetadata = {
+			manifestSha256: data.manifest_sha256,
+			publisherKeyId: data.publisher_key_id,
+			publisherSignature: data.publisher_signature,
+			sourceUrl: script_url,
+			commit,
+		};
 		try {
 			// create app stuff
-			await fs.promises.mkdir(saveDirectory, { recursive: true });
+			const existing = await fs.promises.lstat(saveDirectory).catch(() => null);
+			if (!existing) await fs.promises.mkdir(saveDirectory);
+			else
+				saveDirectory = await resolveCanonicalAppPath(appId, {
+					mustExist: true,
+				});
 			const outputFilePath = path.join(saveDirectory, "dione.json");
 			// download dione.json
-			await downloadFile(script_url, outputFilePath, io, id, commit, force);
+			await downloadFile(
+				script_url,
+				outputFilePath,
+				io,
+				id,
+				trustMetadata,
+				force,
+			);
 		} catch (error) {
 			io.to(id).emit("installUpdate", {
 				type: "log",
@@ -63,7 +88,9 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 				content: "Error detected",
 			});
 			logger.error("Error creating apps directory:", error);
+			throw error;
 		}
+		return undefined;
 	} catch (error) {
 		io.to(id).emit("installUpdate", {
 			type: "log",
@@ -75,8 +102,8 @@ export async function getScripts(id: string, io: Server, force?: boolean) {
 			content: "Error detected",
 		});
 		logger.error(`Error downloading script: ${error}`);
+		throw error;
 	}
-	return null;
 }
 
 export function extractInfo(url: string): {
@@ -84,8 +111,18 @@ export function extractInfo(url: string): {
 	branch?: string;
 	filePath?: string;
 } {
+	const parsedUrl = new URL(url);
+	if (
+		parsedUrl.protocol !== "https:" ||
+		!(["github.com", "raw.githubusercontent.com"] as const).includes(
+			parsedUrl.hostname as "github.com" | "raw.githubusercontent.com",
+		)
+	) {
+		throw new Error("Only approved GitHub HTTPS manifest URLs are supported");
+	}
 	// extract owner and name
-	const repoRegex = /github\.com\/([^\/]+\/[^\/]+)/;
+	const repoRegex =
+		/(?:github\.com|raw\.githubusercontent\.com)\/([^\/]+\/[^\/]+)/;
 	const repoMatch = url.match(repoRegex);
 
 	if (!repoMatch?.[1]) {
@@ -106,6 +143,10 @@ export function extractInfo(url: string): {
 			filePath: fullPathMatch[3],
 		};
 	}
+	const rawPathMatch = url.match(
+		/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/[^/]+\/(.+)/,
+	);
+	if (rawPathMatch) return { repo, filePath: rawPathMatch[1] };
 
 	// return just the repo if no branch/file info
 	return { repo };
@@ -116,10 +157,24 @@ export function downloadFile(
 	FILE_PATH: string,
 	io: Server,
 	id: string,
-	commit: string,
+	trustMetadata: {
+		manifestSha256: string;
+		publisherKeyId: string;
+		publisherSignature: string;
+		sourceUrl: string;
+		commit: string;
+	},
 	force?: boolean,
 ) {
 	const repoInfo = extractInfo(GITHUB_URL);
+	const { commit } = trustMetadata;
+	if (!/^[a-f0-9]{40}$/i.test(commit)) {
+		return Promise.reject(
+			new Error(
+				"Remote install refused: publisher metadata must pin an immutable 40-character git commit",
+			),
+		);
+	}
 
 	io.to(id).emit("installUpdate", {
 		type: "log",
@@ -131,15 +186,17 @@ export function downloadFile(
 		content: "Downloading script...",
 	});
 
-	let url = GITHUB_URL;
-	if (!GITHUB_URL.includes("raw.githubusercontent.com")) {
+	let url: string;
+	if (GITHUB_URL.includes("raw.githubusercontent.com")) {
+		url = `https://raw.githubusercontent.com/${repoInfo.repo}/${commit}/${repoInfo.filePath || "dione.json"}`;
+	} else {
 		try {
 			if (repoInfo.branch && repoInfo.filePath) {
 				// if URL contains branch and file path, use them
-				url = `https://raw.githubusercontent.com/${repoInfo.repo}/${repoInfo.branch}/${repoInfo.filePath}`;
+				url = `https://raw.githubusercontent.com/${repoInfo.repo}/${commit}/${repoInfo.filePath}`;
 			} else {
 				// default to main branch and dione.json if not specified
-				url = `https://raw.githubusercontent.com/${repoInfo.repo}/main/dione.json`;
+				url = `https://raw.githubusercontent.com/${repoInfo.repo}/${commit}/dione.json`;
 			}
 		} catch (error: any) {
 			io.to(id).emit("installUpdate", {
@@ -152,25 +209,38 @@ export function downloadFile(
 				content: "Error detected",
 			});
 			logger.error(`Invalid GitHub URL: ${error.message}`);
-			return Promise.resolve();
+			return Promise.reject(error);
 		}
 	}
 
-	if (commit) {
-		io.to(id).emit("installUpdate", {
-			type: "log",
-			content: `Downloading script with commit ${commit}...\n`,
-		});
-		url += `?ref=${commit}`;
-	}
+	io.to(id).emit("installUpdate", {
+		type: "log",
+		content: `Downloading script with commit ${commit}...\n`,
+	});
 
-	const file = fs.createWriteStream(FILE_PATH);
+	const temporaryPath = path.join(
+		path.dirname(FILE_PATH),
+		`.dione.json.${randomUUID()}.download`,
+	);
+	const file = fs.createWriteStream(temporaryPath, {
+		flags: "wx",
+		mode: 0o600,
+	});
 
 	return new Promise<void>((resolve, reject) => {
 		const request = https.get(url, async (response) => {
 			if (response.statusCode === 200) {
 				try {
 					await pipeline(response, file);
+					await verifyAndRecordRemoteManifest(temporaryPath, trustMetadata);
+					const destination = await fs.promises
+						.lstat(FILE_PATH)
+						.catch(() => null);
+					if (destination?.isSymbolicLink()) {
+						throw new Error("Manifest destination symlink rejected");
+					}
+					if (destination) await fs.promises.rm(FILE_PATH);
+					await fs.promises.rename(temporaryPath, FILE_PATH);
 					io.to(id).emit("installUpdate", {
 						type: "log",
 						content: "Script downloaded successfully.\n",
@@ -247,13 +317,13 @@ export function downloadFile(
 					}
 					resolve();
 				} catch (error) {
-					await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
+					await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
 					reject(error);
 				}
 			} else {
 				response.resume();
 				file.destroy();
-				await fs.promises.rm(FILE_PATH, { force: true }).catch(() => {});
+				await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
 				logger.error(`Error downloading script: ${response.statusCode}`);
 				io.to(id).emit("installUpdate", {
 					type: "log",

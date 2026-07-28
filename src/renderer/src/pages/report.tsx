@@ -98,24 +98,24 @@ export default function ReportPage() {
 						<div className="grid grid-cols-2 gap-4 text-sm">
 							<div>
 								<span className="text-neutral-400">OS</span>
-								<span className="ml-2">{window.electron.process.platform}</span>
+								<span className="ml-2">{window.dione.runtime.platform}</span>
 							</div>
 							<div>
 								<span className="text-neutral-400">Node</span>
 								<span className="ml-2">
-									{window.electron.process.versions.node}
+									{window.dione.runtime.versions.node}
 								</span>
 							</div>
 							<div>
 								<span className="text-neutral-400">Electron</span>
 								<span className="ml-2">
-									{window.electron.process.versions.electron}
+									{window.dione.runtime.versions.electron}
 								</span>
 							</div>
 							<div>
 								<span className="text-neutral-400">Chromium</span>
 								<span className="ml-2">
-									{window.electron.process.versions.chrome}
+									{window.dione.runtime.versions.chrome}
 								</span>
 							</div>
 						</div>

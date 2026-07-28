@@ -23,5 +23,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 
 requestAnimationFrame(() => {
-	window.electron.ipcRenderer.send("renderer-ready");
+	window.dione.rendererReady();
 });

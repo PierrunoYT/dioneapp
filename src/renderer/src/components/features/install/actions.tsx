@@ -98,8 +98,7 @@ export default function ActionsComponent({
 	const handleOpenFolder = async () => {
 		const settings = await apiFetch("config").then((res) => res.json());
 		const sanitizedName = data.name.replace(/\s+/g, "-");
-		window.electron.ipcRenderer.invoke(
-			"open-dir",
+		window.dione.openPath(
 			`${settings.defaultInstallFolder}/apps/${sanitizedName}`,
 		);
 	};
@@ -157,12 +156,14 @@ export default function ActionsComponent({
 										reportStatus !== "reported" && (
 											<>
 												<button
+													type="button"
 													className="px-4 py-1 bg-white/10 hover:bg-white/20 transition-colors rounded-xl text-neutral-300 text-sm cursor-pointer"
 													onClick={() => setShowReportMenu(false)}
 												>
 													{t("common.cancel")}
 												</button>
 												<button
+													type="button"
 													className="px-4 py-1 bg-white/30 hover:bg-white/40 transition-colors text-sm rounded-xl text-white cursor-pointer"
 													onClick={async () => {
 														setReportStatus("loading");
@@ -179,6 +180,7 @@ export default function ActionsComponent({
 										)}
 									{reportStatus === "reported" && (
 										<button
+											type="button"
 											className="px-4 py-1 bg-white text-black hover:bg-white/80 font-semibold transition-opacity rounded-xl text-sm cursor-pointer"
 											onClick={() => {
 												setShowReportMenu(false);

@@ -81,11 +81,7 @@ export default function TerminalOutput({
 			}
 			const { cols, rows } = terminalStatesRef.current[id];
 			if (id) {
-				window.electron?.ipcRenderer?.send("terminal:resize", {
-					id,
-					cols,
-					rows,
-				});
+				window.dione.resizeTerminal(id, cols, rows);
 			}
 		};
 

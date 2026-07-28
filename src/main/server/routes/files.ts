@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readConfig } from "@/config";
+import { validateAppId } from "@/server/scripts/utils/paths";
 import logger from "@/server/utils/logger";
 import { app } from "electron";
 import express from "express";
@@ -168,12 +169,8 @@ const getAppBaseDirectories = (): string[] => {
 		directories.push(
 			path.resolve(config.defaultInstallFolder, APP_FOLDER_NAME),
 		);
-	}
-	const fallbackApps = path.resolve(fallbackRoot, APP_FOLDER_NAME);
-	if (
-		!directories.some((dir) => dir.toLowerCase() === fallbackApps.toLowerCase())
-	) {
-		directories.push(fallbackApps);
+	} else {
+		directories.push(path.resolve(fallbackRoot, APP_FOLDER_NAME));
 	}
 	return directories;
 };
@@ -188,7 +185,10 @@ const inspectDirectoryMetadata = (
 	const dirPath = path.join(base, dirName);
 
 	const appInfoPath = path.join(dirPath, "app_info.json");
-	if (fs.existsSync(appInfoPath)) {
+	if (
+		fs.existsSync(appInfoPath) &&
+		!fs.lstatSync(appInfoPath).isSymbolicLink()
+	) {
 		try {
 			const raw = fs.readFileSync(appInfoPath, "utf8");
 			const appInfo = JSON.parse(raw) as { id?: string; name?: string };
@@ -205,7 +205,7 @@ const inspectDirectoryMetadata = (
 	}
 
 	const dionePath = path.join(dirPath, "dione.json");
-	if (fs.existsSync(dionePath)) {
+	if (fs.existsSync(dionePath) && !fs.lstatSync(dionePath).isSymbolicLink()) {
 		try {
 			const raw = fs.readFileSync(dionePath, "utf8");
 			const dione = JSON.parse(raw);
@@ -248,17 +248,26 @@ const inspectDirectoryMetadata = (
 	return nameMatch ? ("name" as const) : null;
 };
 
-const resolveAppRoot = (rawName: string, appId?: string) => {
+const resolveAppRoot = async (rawName: string, appId?: string) => {
 	if (!rawName) {
 		throw new Error("Application name is required");
 	}
+	const requestedName = validateAppId(rawName);
+	const requestedId = appId ? validateAppId(appId) : undefined;
 
 	const appBases = getAppBaseDirectories();
-	const candidates = buildCandidateNames(rawName);
+	const candidates = buildCandidateNames(requestedName).filter((candidate) => {
+		try {
+			validateAppId(candidate);
+			return true;
+		} catch {
+			return false;
+		}
+	});
 	const candidateNames = buildNameCandidateSet([...candidates, rawName]);
 	const candidateIds = new Set<string>();
-	if (appId) {
-		candidateIds.add(appId.trim().toLowerCase());
+	if (requestedId) {
+		candidateIds.add(requestedId.toLowerCase());
 	}
 
 	const normalizedMatches: Array<{ base: string; dir: string }> = [];
@@ -277,17 +286,27 @@ const resolveAppRoot = (rawName: string, appId?: string) => {
 			continue;
 		}
 
-		const directories = dirEntries.filter((entry) => entry.isDirectory());
+		const baseReal = await fs.promises.realpath(appBase);
+		const directories = dirEntries.filter(
+			(entry) => entry.isDirectory() && !entry.isSymbolicLink(),
+		);
 
 		for (const candidate of candidates) {
-			const candidatePath = path.resolve(appBase, candidate);
-			if (fs.existsSync(candidatePath)) {
-				return candidatePath;
+			const candidatePath = path.join(baseReal, candidate);
+			const entryStats = await fs.promises
+				.lstat(candidatePath)
+				.catch(() => null);
+			if (entryStats?.isDirectory() && !entryStats.isSymbolicLink()) {
+				const candidateReal = await fs.promises.realpath(candidatePath);
+				if (path.dirname(candidateReal) === baseReal) return candidateReal;
 			}
 		}
 
 		for (const entry of directories) {
-			const resolvedPath = path.resolve(appBase, entry.name);
+			const resolvedPath = await fs.promises.realpath(
+				path.join(baseReal, entry.name),
+			);
+			if (path.dirname(resolvedPath) !== baseReal) continue;
 			if (!fs.existsSync(resolvedPath)) continue;
 
 			const metadataMatch = inspectDirectoryMetadata(
@@ -315,22 +334,59 @@ const resolveAppRoot = (rawName: string, appId?: string) => {
 
 	if (normalizedMatches.length > 0) {
 		const { base, dir } = normalizedMatches[0];
-		return path.resolve(base, dir);
+		const baseReal = await fs.promises.realpath(base);
+		const result = await fs.promises.realpath(path.join(baseReal, dir));
+		if (path.dirname(result) === baseReal) return result;
 	}
 
 	throw new Error("Application directory not found");
 };
 
-const resolveWithinRoot = (root: string, relativePath?: string) => {
-	const normalizedRelative = relativePath
-		? normalizeRelative(relativePath).split("/").join(path.sep)
-		: "";
-	const targetPath = path.resolve(root, normalizedRelative);
-	const relative = path.relative(root, targetPath);
-	if (relative.startsWith("..") || path.isAbsolute(relative)) {
+const resolveWithinRoot = async (
+	root: string,
+	relativePath?: string,
+	allowMissingLeaf = false,
+) => {
+	if (
+		relativePath &&
+		(path.isAbsolute(relativePath) || relativePath.includes("\0"))
+	) {
 		throw new Error("Path is outside application root");
 	}
-	return targetPath;
+	const parts = (relativePath || "").replace(/\\/g, "/").split("/");
+	if (parts.some((part) => part === "..")) {
+		throw new Error("Path is outside application root");
+	}
+	const cleanParts = parts.filter((part) => part && part !== ".");
+	const rootReal = await fs.promises.realpath(root);
+	let current = rootReal;
+	for (const [index, part] of cleanParts.entries()) {
+		current = path.join(current, part);
+		const stats = await fs.promises.lstat(current).catch((error: any) => {
+			if (
+				error?.code === "ENOENT" &&
+				allowMissingLeaf &&
+				index === cleanParts.length - 1
+			) {
+				return null;
+			}
+			throw error;
+		});
+		if (!stats) continue;
+		if (stats.isSymbolicLink())
+			throw new Error("Symbolic links are not allowed");
+		const canonical = await fs.promises.realpath(current);
+		const relative = path.relative(rootReal, canonical);
+		if (
+			relative === ".." ||
+			relative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relative)
+		) {
+			throw new Error("Path is outside application root");
+		}
+		current = canonical;
+	}
+	return current;
 };
 
 const toRelativePath = (root: string, absolute: string) => {
@@ -343,7 +399,7 @@ router.get("/root/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		if (!fs.existsSync(appRoot)) {
 			return res.status(404).send({ error: "Application directory not found" });
@@ -367,10 +423,10 @@ router.get("/list/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const dirParam = typeof req.query.dir === "string" ? req.query.dir : "";
-		const targetDir = resolveWithinRoot(appRoot, dirParam);
+		const targetDir = await resolveWithinRoot(appRoot, dirParam);
 
 		if (!fs.existsSync(targetDir)) {
 			return res.status(404).send({ error: "Directory not found" });
@@ -381,9 +437,9 @@ router.get("/list/:appName", async (req, res) => {
 		});
 
 		const mappedEntries: FileEntry[] = await Promise.all(
-			entries.map((entry) =>
-				toFileEntry(appRoot, path.join(targetDir, entry.name)),
-			),
+			entries
+				.filter((entry) => !entry.isSymbolicLink())
+				.map((entry) => toFileEntry(appRoot, path.join(targetDir, entry.name))),
 		);
 
 		mappedEntries.sort((a, b) => {
@@ -417,14 +473,14 @@ router.get("/content/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const fileParam = typeof req.query.file === "string" ? req.query.file : "";
 		if (!fileParam) {
 			return res.status(400).send({ error: "File path is required" });
 		}
 
-		const targetFile = resolveWithinRoot(appRoot, fileParam);
+		const targetFile = await resolveWithinRoot(appRoot, fileParam);
 
 		if (!fs.existsSync(targetFile)) {
 			return res.status(404).send({ error: "File not found" });
@@ -539,7 +595,7 @@ router.post("/save/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const { file, content } = req.body ?? {};
 
@@ -547,14 +603,24 @@ router.post("/save/:appName", async (req, res) => {
 			return res.status(400).send({ error: "File path is required" });
 		}
 
-		const targetFile = resolveWithinRoot(appRoot, file);
+		const targetFile = await resolveWithinRoot(appRoot, file);
 		const stats = await fs.promises.stat(targetFile).catch(() => null);
 
 		if (!stats || !stats.isFile()) {
 			return res.status(400).send({ error: "Target file does not exist" });
 		}
 
-		await fs.promises.writeFile(targetFile, content ?? "", "utf8");
+		const handle = await fs.promises.open(
+			targetFile,
+			fs.constants.O_WRONLY |
+				fs.constants.O_TRUNC |
+				(fs.constants.O_NOFOLLOW || 0),
+		);
+		try {
+			await handle.writeFile(content ?? "", "utf8");
+		} finally {
+			await handle.close();
+		}
 
 		return res.send({ success: true });
 	} catch (error: any) {
@@ -578,7 +644,7 @@ router.post("/create/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const { parent, name, type } = req.body ?? {};
 		if (type !== "file" && type !== "directory") {
@@ -592,7 +658,7 @@ router.post("/create/:appName", async (req, res) => {
 
 		const parentRelative =
 			typeof parent === "string" ? normalizeRelative(parent) : "";
-		const parentAbsolute = resolveWithinRoot(appRoot, parentRelative);
+		const parentAbsolute = await resolveWithinRoot(appRoot, parentRelative);
 		const parentStats = await fs.promises
 			.stat(parentAbsolute)
 			.catch(() => null);
@@ -601,7 +667,7 @@ router.post("/create/:appName", async (req, res) => {
 		}
 
 		const entryRelative = joinRelativePath(parentRelative, name.trim());
-		const entryAbsolute = resolveWithinRoot(appRoot, entryRelative);
+		const entryAbsolute = await resolveWithinRoot(appRoot, entryRelative, true);
 		const exists = await fs.promises
 			.stat(entryAbsolute)
 			.then(() => true)
@@ -636,7 +702,7 @@ router.post("/rename/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const { path: pathParam, name } = req.body ?? {};
 		if (typeof pathParam !== "string") {
@@ -651,7 +717,7 @@ router.post("/rename/:appName", async (req, res) => {
 			return res.status(400).send({ error: "Cannot rename workspace root" });
 		}
 
-		const currentAbsolute = resolveWithinRoot(appRoot, currentRelative);
+		const currentAbsolute = await resolveWithinRoot(appRoot, currentRelative);
 		const currentStats = await fs.promises
 			.stat(currentAbsolute)
 			.catch(() => null);
@@ -661,7 +727,11 @@ router.post("/rename/:appName", async (req, res) => {
 
 		const parentRelative = getParentRelative(currentRelative);
 		const targetRelative = joinRelativePath(parentRelative, name.trim());
-		const targetAbsolute = resolveWithinRoot(appRoot, targetRelative);
+		const targetAbsolute = await resolveWithinRoot(
+			appRoot,
+			targetRelative,
+			true,
+		);
 
 		const sameLocation =
 			currentAbsolute.toLowerCase() === targetAbsolute.toLowerCase();
@@ -702,7 +772,7 @@ router.post("/delete/:appName", async (req, res) => {
 		const appName = decodeURIComponent(req.params.appName);
 		const appId =
 			typeof req.query.appId === "string" ? req.query.appId : undefined;
-		const appRoot = resolveAppRoot(appName, appId);
+		const appRoot = await resolveAppRoot(appName, appId);
 
 		const { path: pathParam } = req.body ?? {};
 		if (typeof pathParam !== "string") {
@@ -714,7 +784,7 @@ router.post("/delete/:appName", async (req, res) => {
 			return res.status(400).send({ error: "Cannot delete workspace root" });
 		}
 
-		const targetAbsolute = resolveWithinRoot(appRoot, relative);
+		const targetAbsolute = await resolveWithinRoot(appRoot, relative);
 		const stats = await fs.promises.stat(targetAbsolute).catch(() => null);
 		if (!stats) {
 			return res.status(404).send({ error: "Entry not found" });

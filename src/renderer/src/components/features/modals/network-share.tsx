@@ -45,7 +45,7 @@ export default function NetworkShareModal({
 		try {
 			setError(null);
 
-			const networkInfo = await window.api.getNetworkAddress();
+			const networkInfo = await window.dione.getNetworkAddress();
 
 			if (networkInfo) {
 				setLocalUrl(networkInfo.url);
@@ -64,7 +64,7 @@ export default function NetworkShareModal({
 
 	const checkActiveTunnel = async () => {
 		try {
-			const currentTunnel = await window.api.getCurrentTunnel();
+			const currentTunnel = await window.dione.getCurrentTunnel();
 			if (currentTunnel) {
 				setTunnelInfo(currentTunnel);
 				setShareMode("public");
@@ -79,10 +79,10 @@ export default function NetworkShareModal({
 			setStartingTunnel(true);
 			setError(null);
 
-			const tunnel = await window.api.startTunnel();
+			const tunnel = await window.dione.startTunnel();
 
 			try {
-				const shortUrl = await window.api.shortenUrl(tunnel.url);
+				const shortUrl = await window.dione.shortenUrl(tunnel.url);
 				if (shortUrl) {
 					tunnel.shortUrl = shortUrl;
 				}
@@ -103,7 +103,7 @@ export default function NetworkShareModal({
 
 	const stopActiveTunnel = async () => {
 		try {
-			await window.api.stopTunnel();
+			await window.dione.stopTunnel();
 			setTunnelInfo(null);
 			setShareMode("local");
 		} catch (err) {
@@ -127,7 +127,7 @@ export default function NetworkShareModal({
 		}
 
 		try {
-			await window.copyToClipboard.writeText(urlToCopy);
+			await window.dione.copyText(urlToCopy);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch (err) {
@@ -177,12 +177,12 @@ export default function NetworkShareModal({
 					{startingTunnel && (
 						<div className="space-y-3">
 							<div className="bg-black/30 rounded-xl px-3 py-2.5 h-[42px] animate-pulse">
-								<div className="h-4 bg-white/10 rounded-xl w-3/4"></div>
+								<div className="h-4 bg-white/10 rounded-xl w-3/4" />
 							</div>
 							<div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 space-y-2 animate-pulse">
-								<div className="h-3 bg-purple-500/20 rounded-xl w-24"></div>
-								<div className="h-6 bg-purple-500/20 rounded-xl"></div>
-								<div className="h-2 bg-purple-500/20 rounded-xl w-4/5"></div>
+								<div className="h-3 bg-purple-500/20 rounded-xl w-24" />
+								<div className="h-6 bg-purple-500/20 rounded-xl" />
+								<div className="h-2 bg-purple-500/20 rounded-xl w-4/5" />
 							</div>
 						</div>
 					)}
@@ -191,11 +191,11 @@ export default function NetworkShareModal({
 						(initialLoading ? (
 							<div className="space-y-3 animate-pulse">
 								<div className="bg-black/30 rounded-xl px-3 py-2.5 h-[42px]">
-									<div className="h-4 bg-white/10 rounded-xl w-3/4"></div>
+									<div className="h-4 bg-white/10 rounded-xl w-3/4" />
 								</div>
 								<div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 h-[60px]">
-									<div className="h-3 bg-blue-500/20 rounded-xl w-full mb-2"></div>
-									<div className="h-3 bg-blue-500/20 rounded-xl w-2/3"></div>
+									<div className="h-3 bg-blue-500/20 rounded-xl w-full mb-2" />
+									<div className="h-3 bg-blue-500/20 rounded-xl w-2/3" />
 								</div>
 							</div>
 						) : error ? (

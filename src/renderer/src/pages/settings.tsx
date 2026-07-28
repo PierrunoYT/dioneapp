@@ -23,9 +23,9 @@ export default function Settings() {
 		electron: string;
 		chrome: string;
 	}>({
-		node: window.electron.process.versions.node || "",
-		electron: window.electron.process.versions.electron || "",
-		chrome: window.electron.process.versions.chrome || "",
+		node: window.dione.runtime.versions.node || "",
+		electron: window.dione.runtime.versions.electron || "",
+		chrome: window.dione.runtime.versions.chrome || "",
 	});
 	const [config, setConfig] = useState<any | null>(null);
 	const { setLanguage, language, t } = useTranslation();
@@ -51,7 +51,7 @@ export default function Settings() {
 
 	useEffect(() => {
 		const fetchVersion = async () => {
-			const version = await window.electron.ipcRenderer.invoke("get-version");
+			const version = await window.dione.getVersion();
 			setPackVersion(version);
 		};
 		fetchVersion();
@@ -66,9 +66,9 @@ export default function Settings() {
 	}, []);
 
 	async function fetchCacheSize() {
-		window.electron.ipcRenderer
-			.invoke("check-folder-size")
-			.then((size) => setCacheSize(size || 0))
+		window.dione
+			.getCacheSize()
+			.then((size) => setCacheSize(Number(size) || 0))
 			.catch((error) => {
 				console.error("Error loading cache size:", error);
 				setCacheSize(0);
@@ -125,8 +125,7 @@ export default function Settings() {
 					</actions>
 				</toast>
 				`;
-					window.electron.ipcRenderer.invoke(
-						"notify",
+					window.dione.notify(
 						t("notifications.enabled.title"),
 						t("notifications.enabled.description"),
 						xml as string,
@@ -153,10 +152,7 @@ export default function Settings() {
 
 	async function handleSaveDir(setting1: string, setting2?: string) {
 		const currentPath = joinPath(config[setting1]);
-		const result = await window.electron.ipcRenderer.invoke(
-			"save-dir",
-			currentPath,
-		);
+		const result = await window.dione.chooseDirectory(currentPath);
 		if (!result.canceled && result.filePaths[0]) {
 			const chosen = result.filePaths[0];
 			// disallow any whitespace in path
@@ -178,10 +174,7 @@ export default function Settings() {
 	}
 
 	async function handleLogsDir() {
-		const result = await window.electron.ipcRenderer.invoke(
-			"save-dir",
-			config.defaultLogsPath,
-		);
+		const result = await window.dione.chooseDirectory(config.defaultLogsPath);
 		if (!result.canceled && result.filePaths[0]) {
 			handleUpdate({ defaultLogsPath: result.filePaths[0] });
 		}
@@ -202,8 +195,7 @@ export default function Settings() {
 			for (const key of ["config", "language", "firstLaunch"]) {
 				localStorage.removeItem(key);
 			}
-			await window.electron.ipcRenderer.invoke("check-first-launch");
-			await window.electron.ipcRenderer.invoke("end-session");
+			await window.dione.checkFirstLaunch();
 			navigate("/first-time");
 		});
 		updateQueue.current = resetOperation.catch(() => {});
@@ -217,7 +209,7 @@ export default function Settings() {
 
 	async function handleDeleteCache() {
 		setDeleteCacheStatus("deleting");
-		const result = await window.electron.ipcRenderer.invoke("delete-folder");
+		const result = await window.dione.deleteCache();
 		if (result) {
 			console.log("Cache deleted successfully");
 			setDeleteCacheStatus("deleted");
@@ -232,13 +224,12 @@ export default function Settings() {
 	}
 
 	const handleCheckUpdates = () => {
-		window.electron.ipcRenderer.invoke("check-update-and-notify");
+		window.dione.checkForUpdatesAndNotify();
 	};
 
 	const handleExportLogs = async () => {
 		try {
-			const result =
-				await window.electron.ipcRenderer.invoke("export-debug-logs");
+			const result = await window.dione.exportDebugLogs();
 
 			if (result.canceled) {
 				return;

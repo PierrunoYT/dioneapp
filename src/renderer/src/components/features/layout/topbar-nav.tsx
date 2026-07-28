@@ -44,31 +44,24 @@ export default function TopbarNav() {
 
 	// detect macOS via preload-exposed platform
 	const isMac =
-		typeof window !== "undefined" && (window as any).platform === "darwin";
+		typeof window !== "undefined" && window.dione.runtime.platform === "darwin";
 
 	useEffect(() => {
-		const ipc = (window as any)?.electron?.ipcRenderer;
-		if (!ipc) return;
-
 		const syncFullscreenState = async () => {
 			try {
-				const fullscreen = await ipc.invoke("app:is-fullscreen");
+				const fullscreen = await window.dione.isFullscreen();
 				setIsFullscreen(!!fullscreen);
 			} catch (error) {
 				console.error("Failed to get fullscreen state", error);
 			}
 		};
 
-		const handleFullscreenChange = (_event: any, fullscreen: boolean) => {
+		const handleFullscreenChange = (fullscreen: boolean) => {
 			setIsFullscreen(!!fullscreen);
 		};
 
 		syncFullscreenState();
-		ipc.on("app:fullscreen-changed", handleFullscreenChange);
-
-		return () => {
-			ipc.removeListener("app:fullscreen-changed", handleFullscreenChange);
-		};
+		return window.dione.onFullscreenChanged(handleFullscreenChange);
 	}, []);
 
 	const [tabOrder, setTabOrder] = useState(() =>
@@ -196,21 +189,19 @@ export default function TopbarNav() {
 				setExitRef(true);
 			} else {
 				await apiFetch("/ai/ollama/stop", { method: "POST" });
-				window.electron.ipcRenderer.invoke("app:close");
+				window.dione.closeApp();
 			}
 		} else {
-			window.electron.ipcRenderer.invoke("app:close");
+			window.dione.closeApp();
 		}
 	};
 
 	const handleMinimize = async () => {
-		await window.electron.ipcRenderer.invoke("app:minimize");
+		await window.dione.minimizeApp();
 	};
 
 	const handleMaximize = async () => {
-		const maximized = await window.electron.ipcRenderer.invoke(
-			"app:toggle-maximize",
-		);
+		const maximized = await window.dione.toggleMaximize();
 		setIsMaximized(maximized);
 	};
 
@@ -312,7 +303,7 @@ export default function TopbarNav() {
 							id="no-draggable"
 							type="button"
 							aria-label={t("sidebar.tooltips.capture")}
-							onClick={() => window.captureScreenshot()}
+							onClick={() => window.dione.captureScreenshot()}
 							variant="ghost"
 							size="sm"
 							icon={<Camera className="h-4 w-4" />}
