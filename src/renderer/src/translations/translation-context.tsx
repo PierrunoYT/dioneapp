@@ -23,8 +23,10 @@ import { apiJson } from "@/utils/api";
 import {
 	type ReactNode,
 	createContext,
+	useCallback,
 	useContext,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 
@@ -137,11 +139,14 @@ const getNestedTranslation = (
 
 // provider component
 export function TranslationProvider({ children }: { children: ReactNode }) {
-	// get initial language from config or default to english
-	const [language, setLanguage] = useState<Language>(() => {
-		const savedLang = localStorage.getItem("language") as Language;
-		return savedLang && languages[savedLang] ? savedLang : "en";
+	// Local storage is only a first-paint cache so the UI does not flash English while
+	// the configuration loads. The stored configuration is authoritative and replaces it.
+	const [language, setLanguageState] = useState<Language>(() => {
+		const cached = localStorage.getItem("language") as Language;
+		return cached && languages[cached] ? cached : "en";
 	});
+	// An explicit choice must survive a configuration load that is still in flight.
+	const selectedByUser = useRef(false);
 
 	// translation function
 	const t = (key: string): string => {
@@ -152,31 +157,42 @@ export function TranslationProvider({ children }: { children: ReactNode }) {
 		);
 	};
 
-	const fetchConfig = async () => {
-		return apiJson<Record<string, unknown>>("/config");
-	};
-
-	const handleUpdateSettings = async (newConfig: Partial<any>) => {
-		if (!newConfig.language) return;
-		const config = await fetchConfig();
-		if (newConfig.language === config.language) return;
-		const response = await apiJson<Record<string, any>>("/config", {
+	// Persist only a deliberate selection. Writing on every render of the provider would
+	// push the cached value back over the stored preference on startup.
+	const setLanguage = useCallback((next: Language) => {
+		if (!languages[next]) return;
+		selectedByUser.current = true;
+		setLanguageState(next);
+		localStorage.setItem("language", next);
+		apiJson<Record<string, unknown>>("/config", {
 			method: "PATCH",
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ language: newConfig.language }),
+			body: JSON.stringify({ language: next }),
+		}).catch((error) => {
+			console.error("Failed to save language preference: ", error);
 		});
-		setLanguage(response.language);
-		localStorage.setItem("language", response.language);
-	};
+	}, []);
 
-	// save language preference
+	// adopt the stored preference on startup
 	useEffect(() => {
-		if (language) {
-			handleUpdateSettings({ language: language });
-		}
-	}, [language]);
+		let cancelled = false;
+		apiJson<Record<string, unknown>>("/config")
+			.then((config) => {
+				const stored = config.language as Language;
+				if (cancelled || selectedByUser.current) return;
+				if (!stored || !languages[stored]) return;
+				setLanguageState(stored);
+				localStorage.setItem("language", stored);
+			})
+			.catch((error) => {
+				console.error("Failed to load language preference: ", error);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	return (
 		<TranslationContext.Provider value={{ t, language, setLanguage }}>

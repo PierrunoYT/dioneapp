@@ -46,6 +46,15 @@ Regressions introduced by the July 28 hardening pass, found while running the ap
   configuration and returned defaults anyway. The directory flush is now best effort and
   tolerates `EPERM`, `EINVAL`, and `ENOSYS`; the file fsync and atomic rename still prevent
   a torn or partial configuration.
+- **The saved interface language was overwritten on every launch.** `TranslationProvider`
+  seeded its state from `localStorage` — falling back to `en` when that key was absent or
+  stale — and an effect keyed on the resulting value immediately `PATCH`ed `/config` with
+  it. The cached value therefore won over the stored preference, so a config set to any
+  non-English language silently reverted to English on startup and the user's real choice
+  was overwritten on disk. The stored configuration is now authoritative and is adopted on
+  mount; `localStorage` is kept only as a first-paint cache so the UI does not flash
+  English while the config loads. A write happens only on a deliberate `setLanguage()`
+  call, and an explicit selection is no longer clobbered by a config load still in flight.
 
 ### Security
 
