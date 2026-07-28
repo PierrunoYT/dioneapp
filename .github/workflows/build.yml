@@ -13,12 +13,14 @@ on:
         type: boolean
         
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   generate-translations:
     if: ${{ github.event.inputs.generate_translations == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout code
@@ -37,7 +39,7 @@ jobs:
       run: npm ci --prefer-offline --no-audit --no-fund --silent --ignore-scripts
 
     - name: Generate translations
-      run: npm run generate-translations ${{ secrets.GEMINI_API_KEY }} ${{ secrets.GEMINI_API_KEY_2 }} ${{ secrets.GEMINI_API_KEY_3 }}
+      run: npm run generate-translations
       env:
         GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY }}
         GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
@@ -49,10 +51,43 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add src/renderer/src/translations/languages/*.ts
-        git diff --staged --quiet || git commit -m "Update translations for v${{ github.event.inputs.version }}"
+        git diff --staged --quiet || git commit -m "Update translations for v${RELEASE_VERSION}"
         git push
+      env:
+        RELEASE_VERSION: ${{ github.event.inputs.version }}
+
+  deployment-attestation:
+    runs-on: ubuntu-latest
+    outputs:
+      config-digest: ${{ steps.attestation.outputs.config_digest }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+        cache: 'npm'
+    - name: Install dependencies
+      run: npm ci --prefer-offline --no-audit --no-fund --silent --ignore-scripts
+    - name: Validate release version
+      run: node -e 'if (!require("semver").valid(process.env.RELEASE_VERSION)) process.exit(1)'
+      env:
+        RELEASE_VERSION: ${{ github.event.inputs.version }}
+    - name: Attest publisher catalog and Supabase deployment
+      id: attestation
+      run: |
+        npm run attest-deployment
+        echo "config_digest=$(./node_modules/.bin/tsx scripts/check-deployment-readiness.ts --config-digest)" >> "$GITHUB_OUTPUT"
+      env:
+        VITE_PUBLIC_REMOTE_INSTALLS_ENABLED: ${{ vars.REMOTE_INSTALLS_ENABLED }}
+        VITE_PUBLIC_DIONE_CATALOG_URL: ${{ vars.DIONE_CATALOG_URL }}
+        DIONE_PUBLISHER_TRUST_STORE: ${{ vars.DIONE_PUBLISHER_TRUST_STORE }}
+        VITE_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
   build:
+    needs: deployment-attestation
     runs-on: ${{ matrix.os }}
     
     strategy:
@@ -108,6 +143,16 @@ jobs:
     - name: Validate locale schema
       run: npm run check-locales
 
+    - name: Bind package configuration to live attestation
+      run: npx tsx scripts/check-deployment-readiness.ts --verify-config-digest
+      env:
+        DIONE_EXPECTED_CONFIG_DIGEST: ${{ needs.deployment-attestation.outputs.config-digest }}
+        VITE_PUBLIC_REMOTE_INSTALLS_ENABLED: ${{ vars.REMOTE_INSTALLS_ENABLED }}
+        VITE_PUBLIC_DIONE_CATALOG_URL: ${{ vars.DIONE_CATALOG_URL }}
+        DIONE_PUBLISHER_TRUST_STORE: ${{ vars.DIONE_PUBLISHER_TRUST_STORE }}
+        VITE_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+
     - name: Build app
       run: ${{ matrix.build-command }}
       env:
@@ -116,6 +161,9 @@ jobs:
         # not privileged service credentials.
         VITE_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
         VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        VITE_PUBLIC_REMOTE_INSTALLS_ENABLED: ${{ vars.REMOTE_INSTALLS_ENABLED }}
+        VITE_PUBLIC_DIONE_CATALOG_URL: ${{ vars.DIONE_CATALOG_URL }}
+        DIONE_PUBLISHER_TRUST_STORE: ${{ vars.DIONE_PUBLISHER_TRUST_STORE }}
 
     - name: Compress artifacts
       run: |
@@ -139,6 +187,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code
@@ -181,15 +231,26 @@ jobs:
         cd ..
         ls -la release-files/
 
+    - name: Bind release tag to attested commit
+      env:
+        RELEASE_TAG: v${{ github.event.inputs.version }}
+      run: |
+        existing=$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)
+        if [ -n "$existing" ] && [ "$existing" != "$GITHUB_SHA" ]; then
+          echo "Release tag already points to a different commit" >&2
+          exit 1
+        fi
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ github.event.inputs.version }}
         name: Dione v${{ github.event.inputs.version }}
+        target_commitish: ${{ github.sha }}
         files: release-files/**
         body: ${{ steps.changelog.outputs.changelog }}
         draft: false
         prerelease: false
         make_latest: true
       env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        GITHUB_TOKEN: ${{ github.token }}

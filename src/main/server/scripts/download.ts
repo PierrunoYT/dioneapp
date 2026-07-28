@@ -19,22 +19,25 @@ import logger from "@/server/utils/logger";
 import type { Server } from "socket.io";
 
 export async function getScripts(id: string, io: Server, force?: boolean) {
+	if (import.meta.env.VITE_PUBLIC_REMOTE_INSTALLS_ENABLED !== "true") {
+		throw new Error(
+			"Remote installs are disabled in this build because deployment trust was not enabled",
+		);
+	}
+	const catalogUrl = import.meta.env.VITE_PUBLIC_DIONE_CATALOG_URL;
+	if (!catalogUrl) {
+		throw new Error("Remote installs are enabled without a catalog URL");
+	}
 	if (!supabase) {
 		logger.warn(
 			"Supabase not initialized (no .env). Continuing without DB features.",
 		);
 	}
 	try {
-		const response = await fetch(
-			`https://api-getdione-app.deeivihh.workers.dev/v1/scripts?id=${id}&limit=1`,
-			{
-				headers: {
-					...(process.env.DIONE_API_KEY
-						? { Authorization: `Bearer ${process.env.DIONE_API_KEY}` }
-						: {}),
-				},
-			},
-		);
+		const url = new URL(catalogUrl);
+		url.searchParams.set("id", id);
+		url.searchParams.set("limit", "1");
+		const response = await fetch(url);
 		if (!response.ok) {
 			throw new Error(
 				`Script catalog request failed with status ${response.status}`,

@@ -37,6 +37,9 @@
     "check-locales": "tsx scripts/check-locales.ts",
     "check-installer-security": "tsx scripts/check-installer-security.ts",
     "test:router": "tsx --test src/renderer/src/utils/router.test.ts",
+    "check-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --offline",
+    "test-deployment-readiness": "tsx scripts/check-deployment-readiness.ts --self-test",
+    "attest-deployment": "tsx scripts/check-deployment-readiness.ts --release --live",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run check-licenses && npm run typecheck && electron-vite build",
@@ -49,7 +52,7 @@
     "generate-icons": "npx tsx scripts/generate-icons.ts",
     "generate-licenses": "node scripts/generate-third-party-notices.mjs",
     "check-licenses": "node scripts/generate-third-party-notices.mjs --check",
-    "deploy": "npx auto-changelog --package --commit-limit false --commit-url https://github.com/dioneapp/dioneapp/commits/main/ --sort-commits date-desc --release-summary && npm run build && electron-builder --win --publish always"
+    "deploy": "npm run attest-deployment && npx auto-changelog --package --commit-limit false --commit-url https://github.com/dioneapp/dioneapp/commits/main/ --sort-commits date-desc --release-summary && npm run build && electron-builder --win --publish always"
   },
   "build": {
     "appId": "dione",

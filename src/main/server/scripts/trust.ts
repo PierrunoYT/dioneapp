@@ -281,10 +281,10 @@ export function validateManifestBytes(bytes: Buffer): Record<string, unknown> {
 }
 
 function trustStore(): Record<string, string> {
-	const raw = process.env.DIONE_PUBLISHER_TRUST_STORE;
+	const raw = import.meta.env.DIONE_PUBLISHER_TRUST_STORE;
 	if (!raw)
 		throw new Error(
-			"DIONE_PUBLISHER_TRUST_STORE is not configured; remote manifests cannot be trusted",
+			"The packaged publisher trust store is not configured; remote manifests cannot be trusted",
 		);
 	try {
 		const parsed = JSON.parse(raw);

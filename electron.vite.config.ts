@@ -1,16 +1,16 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import "dotenv/config";
+import { resolve } from "node:path";
 import {
 	defineConfig,
 	defineViteConfig,
 	externalizeDepsPlugin,
 } from "electron-vite";
-import { resolve } from "node:path";
 
 export default defineConfig({
 	main: {
-		envPrefix: ["VITE_PUBLIC_"],
+		envPrefix: ["VITE_PUBLIC_", "DIONE_PUBLISHER_TRUST_STORE"],
 		plugins: [externalizeDepsPlugin()],
 		resolve: {
 			alias: {
